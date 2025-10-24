@@ -1,0 +1,113 @@
+2025-10-24 18:52:37,810 - Processing stations
+2025-10-24 18:52:37,811 - Loading spatial coordinates from: ../SpatialDataGeneration/stations_with_coords.csv
+2025-10-24 18:52:37,832 - Loaded coordinates for 453 stations
+2025-10-24 18:52:37,833 - Expected timestamp grid: 11689 3-hourly intervals
+2025-10-24 18:52:37,833 - Processing 453 station files
+2025-10-24 18:54:48,356 - Successfully processed 228 stations
+2025-10-24 18:54:48,357 - Saving processed station files
+2025-10-24 18:55:32,747 - Stations processed: 228/453 (50.3%)
+2025-10-24 18:55:32,747 - Stations removed (missing features): 225
+2025-10-24 18:55:32,747 - Total datapoints: 39,976,380
+2025-10-24 18:55:32,747 - Null values remaining: 0
+2025-10-24 18:55:32,747 - Data coverage: 100.00%
+2025-10-24 18:55:32,747 - Total interpolated values: 9,003,163
+2025-10-24 18:55:32,747 - Total capped values: 1,728
+2025-10-24 18:55:32,840 - Preparing tensors
+2025-10-24 18:55:32,841 - Found 228 preprocessed station files
+2025-10-24 18:55:32,842 - Time range: 2019-03-31 00:00:00 to 2023-03-31 00:00:00
+2025-10-24 18:55:32,842 - Total timesteps: 11689 (3-hourly intervals)
+2025-10-24 18:55:42,921 - Valid stations loaded: 228
+2025-10-24 18:55:42,921 - Creating data matrix: (11689, 228, 15) (time, stations, features)
+2025-10-24 18:55:45,699 - Data matrix filled successfully: (11689, 228, 15)
+2025-10-24 18:55:45,727 - Data split - Train: 8182, Validation: 1168, Test: 2339
+2025-10-24 18:55:45,727 - Applying feature-wise standardization...
+2025-10-24 18:55:47,101 - Standardization complete with 15 feature scalers
+2025-10-24 18:55:47,102 - Sequence configuration:
+2025-10-24 18:55:47,102 -   Input: 72h : 24 timesteps
+2025-10-24 18:55:47,102 -   Forecast: 72h : 24 timesteps
+2025-10-24 18:55:47,102 - Creating temporal sequences
+2025-10-24 18:55:48,456 - Sequence shapes:
+2025-10-24 18:55:48,456 -   Train: X(8135, 24, 228, 15), y(8135, 24, 228, 1)
+2025-10-24 18:55:48,456 -   Validation: X(1121, 24, 228, 15), y(1121, 24, 228, 1)
+2025-10-24 18:55:48,456 -   Test: X(2292, 24, 228, 15), y(2292, 24, 228, 1)
+2025-10-24 18:55:48,456 - Saving model-ready data...
+2025-10-24 18:57:43,042 - Complete
+2025-10-24 18:57:43,043 - Stations: 228
+2025-10-24 18:57:43,043 - Features: 15
+2025-10-24 18:57:43,043 - Timesteps: 11689
+2025-10-24 18:57:43,043 - Output directory: ./Dataset/INDIAN_AIR
+2025-10-24 18:57:43,425 - Creating basic dartboard partitions
+2025-10-24 18:57:43,425 - Loading station metadata from: ./Dataset/INDIAN_AIR/metadata.pkl
+2025-10-24 18:57:43,426 - Loaded 228 stations from metadata, 228 have valid coordinates
+2025-10-24 18:57:43,426 - Time range: 2019-03-31 00:00:00 to 2023-03-31 00:00:00
+2025-10-24 18:57:43,426 - Features: 15
+2025-10-24 18:57:43,426 - 
+Creating partition: 50 (radii: [50] km)
+2025-10-24 18:57:43,426 - Computing distance matrix for 228 stations...
+2025-10-24 18:57:43,539 - Creating 1 rings with radii: [50] km and 8 sectors
+2025-10-24 18:57:44,464 - Normalizing region assignments...
+2025-10-24 18:57:44,471 - Region 0 (Station itself / identical coords): 228 stations have connections
+2025-10-24 18:57:44,471 - Region 1 (Ring 1: 0-50km, Sector 0): 70 stations have connections
+2025-10-24 18:57:44,471 - Region 2 (Ring 1: 0-50km, Sector 1): 58 stations have connections
+2025-10-24 18:57:44,471 - Region 3 (Ring 1: 0-50km, Sector 2): 68 stations have connections
+2025-10-24 18:57:44,471 - Region 4 (Ring 1: 0-50km, Sector 3): 67 stations have connections
+2025-10-24 18:57:44,471 - Region 5 (Ring 1: 0-50km, Sector 4): 72 stations have connections
+2025-10-24 18:57:44,471 - Region 6 (Ring 1: 0-50km, Sector 5): 53 stations have connections
+2025-10-24 18:57:44,471 - Region 7 (Ring 1: 0-50km, Sector 6): 75 stations have connections
+2025-10-24 18:57:44,471 - Region 8 (Ring 1: 0-50km, Sector 7): 73 stations have connections
+2025-10-24 18:57:44,479 - Saved to ./Dataset/INDIAN_AIR/local_partition\50: assignment(228, 228, 9), mask(228, 9)
+2025-10-24 18:57:44,479 - 
+Creating partition: 50-200 (radii: [50, 200] km)
+2025-10-24 18:57:44,479 - Computing distance matrix for 228 stations...
+2025-10-24 18:57:44,584 - Creating 2 rings with radii: [50, 200] km and 8 sectors
+2025-10-24 18:57:45,480 - Normalizing region assignments...
+2025-10-24 18:57:45,494 - Region 0 (Station itself / identical coords): 228 stations have connections
+2025-10-24 18:57:45,494 - Region 1 (Ring 1: 0-50km, Sector 0): 70 stations have connections
+2025-10-24 18:57:45,494 - Region 2 (Ring 1: 0-50km, Sector 1): 58 stations have connections
+2025-10-24 18:57:45,494 - Region 3 (Ring 1: 0-50km, Sector 2): 68 stations have connections
+2025-10-24 18:57:45,494 - Region 4 (Ring 1: 0-50km, Sector 3): 67 stations have connections
+2025-10-24 18:57:45,494 - Region 5 (Ring 1: 0-50km, Sector 4): 72 stations have connections
+2025-10-24 18:57:45,494 - Region 6 (Ring 1: 0-50km, Sector 5): 53 stations have connections
+2025-10-24 18:57:45,494 - Region 7 (Ring 1: 0-50km, Sector 6): 75 stations have connections
+2025-10-24 18:57:45,494 - Region 8 (Ring 1: 0-50km, Sector 7): 73 stations have connections
+2025-10-24 18:57:45,494 - Region 9 (Ring 2: 50-200km, Sector 0): 105 stations have connections
+2025-10-24 18:57:45,494 - Region 10 (Ring 2: 50-200km, Sector 1): 111 stations have connections
+2025-10-24 18:57:45,494 - Region 11 (Ring 2: 50-200km, Sector 2): 107 stations have connections
+2025-10-24 18:57:45,494 - Region 12 (Ring 2: 50-200km, Sector 3): 113 stations have connections
+2025-10-24 18:57:45,494 - Region 13 (Ring 2: 50-200km, Sector 4): 114 stations have connections
+2025-10-24 18:57:45,494 - Region 14 (Ring 2: 50-200km, Sector 5): 85 stations have connections
+2025-10-24 18:57:45,494 - Region 15 (Ring 2: 50-200km, Sector 6): 132 stations have connections
+2025-10-24 18:57:45,494 - Region 16 (Ring 2: 50-200km, Sector 7): 125 stations have connections
+2025-10-24 18:57:45,501 - Saved to ./Dataset/INDIAN_AIR/local_partition\50-200: assignment(228, 228, 17), mask(228, 17)
+2025-10-24 18:57:45,501 - 
+Creating partition: 50-200-500 (radii: [50, 200, 500] km)
+2025-10-24 18:57:45,501 - Computing distance matrix for 228 stations...
+2025-10-24 18:57:45,594 - Creating 3 rings with radii: [50, 200, 500] km and 8 sectors
+2025-10-24 18:57:46,501 - Normalizing region assignments...
+2025-10-24 18:57:46,522 - Region 0 (Station itself / identical coords): 228 stations have connections
+2025-10-24 18:57:46,522 - Region 1 (Ring 1: 0-50km, Sector 0): 70 stations have connections
+2025-10-24 18:57:46,522 - Region 2 (Ring 1: 0-50km, Sector 1): 58 stations have connections
+2025-10-24 18:57:46,522 - Region 3 (Ring 1: 0-50km, Sector 2): 68 stations have connections
+2025-10-24 18:57:46,522 - Region 4 (Ring 1: 0-50km, Sector 3): 67 stations have connections
+2025-10-24 18:57:46,522 - Region 5 (Ring 1: 0-50km, Sector 4): 72 stations have connections
+2025-10-24 18:57:46,522 - Region 6 (Ring 1: 0-50km, Sector 5): 53 stations have connections
+2025-10-24 18:57:46,523 - Region 7 (Ring 1: 0-50km, Sector 6): 75 stations have connections
+2025-10-24 18:57:46,523 - Region 8 (Ring 1: 0-50km, Sector 7): 73 stations have connections
+2025-10-24 18:57:46,523 - Region 9 (Ring 2: 50-200km, Sector 0): 105 stations have connections
+2025-10-24 18:57:46,523 - Region 10 (Ring 2: 50-200km, Sector 1): 111 stations have connections
+2025-10-24 18:57:46,523 - Region 11 (Ring 2: 50-200km, Sector 2): 107 stations have connections
+2025-10-24 18:57:46,523 - Region 12 (Ring 2: 50-200km, Sector 3): 113 stations have connections
+2025-10-24 18:57:46,523 - Region 13 (Ring 2: 50-200km, Sector 4): 114 stations have connections
+2025-10-24 18:57:46,523 - Region 14 (Ring 2: 50-200km, Sector 5): 85 stations have connections
+2025-10-24 18:57:46,523 - Region 15 (Ring 2: 50-200km, Sector 6): 132 stations have connections
+2025-10-24 18:57:46,523 - Region 16 (Ring 2: 50-200km, Sector 7): 125 stations have connections
+2025-10-24 18:57:46,523 - Region 17 (Ring 3: 200-500km, Sector 0): 159 stations have connections
+2025-10-24 18:57:46,523 - Region 18 (Ring 3: 200-500km, Sector 1): 142 stations have connections
+2025-10-24 18:57:46,523 - Region 19 (Ring 3: 200-500km, Sector 2): 175 stations have connections
+2025-10-24 18:57:46,523 - Region 20 (Ring 3: 200-500km, Sector 3): 178 stations have connections
+2025-10-24 18:57:46,523 - Region 21 (Ring 3: 200-500km, Sector 4): 178 stations have connections
+2025-10-24 18:57:46,523 - Region 22 (Ring 3: 200-500km, Sector 5): 174 stations have connections
+2025-10-24 18:57:46,523 - Region 23 (Ring 3: 200-500km, Sector 6): 171 stations have connections
+2025-10-24 18:57:46,523 - Region 24 (Ring 3: 200-500km, Sector 7): 175 stations have connections
+2025-10-24 18:57:46,531 - Saved to ./Dataset/INDIAN_AIR/local_partition\50-200-500: assignment(228, 228, 25), mask(228, 25)
+2025-10-24 18:57:46,531 - Dartboard partitioning complete.
