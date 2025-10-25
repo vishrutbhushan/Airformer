@@ -1,0 +1,146 @@
+2025-10-19 12:47:28,202 - __main__ - INFO - Starting AirFormer training...
+2025-10-19 12:47:29,461 - __main__ - INFO - CUDA optimizations enabled (max performance mode)
+2025-10-19 12:47:29,461 - __main__ - INFO - Loading data...
+2025-10-19 12:47:37,259 - __main__ - INFO - Actual stations from data: 217
+2025-10-19 12:47:37,259 - __main__ - INFO - Sample input shape: torch.Size([24, 24, 217, 15])
+2025-10-19 12:47:37,259 - __main__ - INFO - Creating model...
+2025-10-19 12:47:37,289 - __main__ - INFO - Total parameters: 228,167
+2025-10-19 12:47:37,289 - __main__ - INFO - Trainable parameters: 228,167
+2025-10-19 12:47:37,289 - __main__ - INFO - Model size: ~0.87 MB (fp32)
+2025-10-19 12:47:38,516 - trainer - INFO - Mixed precision training enabled
+2025-10-19 12:47:38,517 - trainer - INFO - Gradient accumulation: 1 steps
+2025-10-19 12:47:38,517 - trainer - INFO - Gradient clipping: 5.0
+2025-10-19 12:47:38,517 - trainer - INFO - Weight decay: 5e-06
+2025-10-19 12:47:38,517 - trainer - INFO - LR scheduler: StepLR(step=5, gamma=0.7)
+2025-10-19 12:47:38,517 - trainer - INFO - Training...
+2025-10-19 12:48:46,076 - trainer - INFO - Epoch   1/300 | Train: 1.1455 | Val: 0.1142 | LR: 0.000300 | Time: 67.6s
+2025-10-19 13:10:47,487 - __main__ - INFO - Starting AirFormer training...
+2025-10-19 13:10:48,735 - __main__ - INFO - CUDA optimizations enabled (max performance mode)
+2025-10-19 13:10:48,736 - __main__ - INFO - Loading data...
+2025-10-19 13:10:56,039 - __main__ - INFO - Actual stations from data: 217
+2025-10-19 13:10:56,040 - __main__ - INFO - Sample input shape: torch.Size([24, 24, 217, 15])
+2025-10-19 13:10:56,040 - __main__ - INFO - Creating model...
+2025-10-19 13:10:56,070 - __main__ - INFO - Total parameters: 228,167
+2025-10-19 13:10:56,070 - __main__ - INFO - Trainable parameters: 228,167
+2025-10-19 13:10:56,071 - __main__ - INFO - Model size: ~0.87 MB (fp32)
+2025-10-19 13:17:02,062 - __main__ - INFO - Starting AirFormer training...
+2025-10-19 13:17:03,314 - __main__ - INFO - CUDA optimizations enabled (max performance mode)
+2025-10-19 13:17:03,314 - __main__ - INFO - Loading data...
+2025-10-19 13:17:10,587 - __main__ - INFO - Actual stations from data: 217
+2025-10-19 13:17:10,588 - __main__ - INFO - Sample input shape: torch.Size([24, 24, 217, 15])
+2025-10-19 13:17:10,588 - __main__ - INFO - Creating model...
+2025-10-19 13:17:10,614 - __main__ - INFO - Total parameters: 228,167
+2025-10-19 13:17:10,614 - __main__ - INFO - Trainable parameters: 228,167
+2025-10-19 13:17:10,614 - __main__ - INFO - Model size: ~0.87 MB (fp32)
+2025-10-19 13:17:11,811 - trainer - INFO - Mixed precision training enabled
+2025-10-19 13:17:11,811 - trainer - INFO - Gradient accumulation: 1 steps
+2025-10-19 13:17:11,811 - trainer - INFO - Gradient clipping: 5.0
+2025-10-19 13:17:11,811 - trainer - INFO - Weight decay: 5e-06
+2025-10-19 13:17:11,811 - trainer - INFO - LR scheduler: ReduceLROnPlateau(patience=10, factor=0.5)
+2025-10-19 13:17:11,811 - trainer - INFO - Training...
+2025-10-19 13:18:19,055 - trainer - INFO - Epoch   1/300 | Train: 1.1206 | Val: 0.0912 | LR: 0.000300 | Time: 67.2s
+2025-10-19 13:18:19,083 - trainer - INFO -   [SAVED] (val_loss: 0.0912)
+2025-10-19 13:19:23,679 - trainer - INFO - Epoch   2/300 | Train: 0.4355 | Val: 0.0889 | LR: 0.000300 | Time: 64.6s
+2025-10-19 13:19:23,703 - trainer - INFO -   [SAVED] (val_loss: 0.0889)
+2025-10-19 13:20:28,413 - trainer - INFO - Epoch   3/300 | Train: 0.3666 | Val: 0.0852 | LR: 0.000300 | Time: 64.7s
+2025-10-19 13:20:28,437 - trainer - INFO -   [SAVED] (val_loss: 0.0852)
+2025-10-19 13:21:33,156 - trainer - INFO - Epoch   4/300 | Train: 0.3342 | Val: 0.0789 | LR: 0.000300 | Time: 64.7s
+2025-10-19 13:21:33,188 - trainer - INFO -   [SAVED] (val_loss: 0.0789)
+2025-10-19 13:22:38,124 - trainer - INFO - Epoch   5/300 | Train: 0.3222 | Val: 0.0885 | LR: 0.000300 | Time: 64.9s
+2025-10-19 13:23:43,177 - trainer - INFO - Epoch   6/300 | Train: 0.3131 | Val: 0.0819 | LR: 0.000300 | Time: 65.1s
+2025-10-19 13:24:48,283 - trainer - INFO - Epoch   7/300 | Train: 0.3083 | Val: 0.0842 | LR: 0.000300 | Time: 65.1s
+2025-10-19 13:25:53,494 - trainer - INFO - Epoch   8/300 | Train: 0.2959 | Val: 0.0728 | LR: 0.000300 | Time: 65.2s
+2025-10-19 13:25:53,523 - trainer - INFO -   [SAVED] (val_loss: 0.0728)
+2025-10-19 13:26:58,894 - trainer - INFO - Epoch   9/300 | Train: 0.2907 | Val: 0.0842 | LR: 0.000300 | Time: 65.4s
+2025-10-19 13:28:04,004 - trainer - INFO - Epoch  10/300 | Train: 0.2922 | Val: 0.0796 | LR: 0.000300 | Time: 65.1s
+2025-10-19 13:29:09,067 - trainer - INFO - Epoch  11/300 | Train: 0.2808 | Val: 0.0705 | LR: 0.000300 | Time: 65.1s
+2025-10-19 13:29:09,092 - trainer - INFO -   [SAVED] (val_loss: 0.0705)
+2025-10-19 13:30:14,112 - trainer - INFO - Epoch  12/300 | Train: 0.2784 | Val: 0.0769 | LR: 0.000300 | Time: 65.0s
+2025-10-19 13:31:19,246 - trainer - INFO - Epoch  13/300 | Train: 0.2751 | Val: 0.0690 | LR: 0.000300 | Time: 65.1s
+2025-10-19 13:31:19,271 - trainer - INFO -   [SAVED] (val_loss: 0.0690)
+2025-10-19 13:32:24,345 - trainer - INFO - Epoch  14/300 | Train: 0.2707 | Val: 0.0808 | LR: 0.000300 | Time: 65.1s
+2025-10-19 13:33:29,387 - trainer - INFO - Epoch  15/300 | Train: 0.2694 | Val: 0.0713 | LR: 0.000300 | Time: 65.0s
+2025-10-19 13:34:34,445 - trainer - INFO - Epoch  16/300 | Train: 0.2668 | Val: 0.0683 | LR: 0.000300 | Time: 65.1s
+2025-10-19 13:34:34,471 - trainer - INFO -   [SAVED] (val_loss: 0.0683)
+2025-10-19 13:35:39,550 - trainer - INFO - Epoch  17/300 | Train: 0.2650 | Val: 0.0690 | LR: 0.000300 | Time: 65.1s
+2025-10-19 13:36:44,625 - trainer - INFO - Epoch  18/300 | Train: 0.2640 | Val: 0.0711 | LR: 0.000300 | Time: 65.1s
+2025-10-19 13:37:49,694 - trainer - INFO - Epoch  19/300 | Train: 0.2623 | Val: 0.0827 | LR: 0.000300 | Time: 65.1s
+2025-10-19 13:38:54,790 - trainer - INFO - Epoch  20/300 | Train: 0.2594 | Val: 0.0836 | LR: 0.000300 | Time: 65.1s
+2025-10-19 13:39:59,854 - trainer - INFO - Epoch  21/300 | Train: 0.2582 | Val: 0.0787 | LR: 0.000300 | Time: 65.1s
+2025-10-19 13:41:04,903 - trainer - INFO - Epoch  22/300 | Train: 0.2583 | Val: 0.0698 | LR: 0.000300 | Time: 65.0s
+2025-10-19 14:03:30,719 - trainer - INFO - Epoch  23/300 | Train: 0.2558 | Val: 0.0716 | LR: 0.000300 | Time: 1345.8s
+2025-10-19 14:04:35,259 - trainer - INFO - Epoch  24/300 | Train: 0.2541 | Val: 0.0675 | LR: 0.000300 | Time: 64.5s
+2025-10-19 14:04:35,281 - trainer - INFO -   [SAVED] (val_loss: 0.0675)
+2025-10-19 14:05:39,933 - trainer - INFO - Epoch  25/300 | Train: 0.2558 | Val: 0.0671 | LR: 0.000300 | Time: 64.7s
+2025-10-19 14:05:39,960 - trainer - INFO -   [SAVED] (val_loss: 0.0671)
+2025-10-19 14:06:44,547 - trainer - INFO - Epoch  26/300 | Train: 0.2522 | Val: 0.0664 | LR: 0.000300 | Time: 64.6s
+2025-10-19 14:06:44,571 - trainer - INFO -   [SAVED] (val_loss: 0.0664)
+2025-10-19 14:07:49,162 - trainer - INFO - Epoch  27/300 | Train: 0.2524 | Val: 0.0742 | LR: 0.000300 | Time: 64.6s
+2025-10-19 14:09:34,038 - trainer - INFO - Epoch  28/300 | Train: 0.2513 | Val: 0.0669 | LR: 0.000300 | Time: 104.9s
+2025-10-19 14:10:38,567 - trainer - INFO - Epoch  29/300 | Train: 0.2492 | Val: 0.0670 | LR: 0.000300 | Time: 64.5s
+2025-10-19 14:11:43,304 - trainer - INFO - Epoch  30/300 | Train: 0.2496 | Val: 0.0673 | LR: 0.000300 | Time: 64.7s
+2025-10-19 14:12:48,362 - trainer - INFO - Epoch  31/300 | Train: 0.2467 | Val: 0.0684 | LR: 0.000300 | Time: 65.1s
+2025-10-19 14:13:53,566 - trainer - INFO - Epoch  32/300 | Train: 0.2454 | Val: 0.0673 | LR: 0.000300 | Time: 65.2s
+2025-10-19 14:14:58,591 - trainer - INFO - Epoch  33/300 | Train: 0.2437 | Val: 0.0682 | LR: 0.000300 | Time: 65.0s
+2025-10-19 14:16:03,585 - trainer - INFO - Epoch  34/300 | Train: 0.2445 | Val: 0.0697 | LR: 0.000300 | Time: 65.0s
+2025-10-19 14:17:08,524 - trainer - INFO - Epoch  35/300 | Train: 0.2423 | Val: 0.0673 | LR: 0.000300 | Time: 64.9s
+2025-10-19 14:18:13,523 - trainer - INFO - Epoch  36/300 | Train: 0.2438 | Val: 0.0711 | LR: 0.000300 | Time: 65.0s
+2025-10-19 14:19:18,545 - trainer - INFO - Epoch  37/300 | Train: 0.2429 | Val: 0.0678 | LR: 0.000150 | Time: 65.0s
+2025-10-19 14:20:23,504 - trainer - INFO - Epoch  38/300 | Train: 0.2389 | Val: 0.0666 | LR: 0.000150 | Time: 65.0s
+2025-10-19 14:21:28,518 - trainer - INFO - Epoch  39/300 | Train: 0.2382 | Val: 0.0657 | LR: 0.000150 | Time: 65.0s
+2025-10-19 14:21:28,544 - trainer - INFO -   [SAVED] (val_loss: 0.0657)
+2025-10-19 14:22:33,621 - trainer - INFO - Epoch  40/300 | Train: 0.2379 | Val: 0.0681 | LR: 0.000150 | Time: 65.1s
+2025-10-19 14:23:38,730 - trainer - INFO - Epoch  41/300 | Train: 0.2373 | Val: 0.0663 | LR: 0.000150 | Time: 65.1s
+2025-10-19 14:24:43,688 - trainer - INFO - Epoch  42/300 | Train: 0.2374 | Val: 0.0648 | LR: 0.000150 | Time: 65.0s
+2025-10-19 14:24:43,710 - trainer - INFO -   [SAVED] (val_loss: 0.0648)
+2025-10-19 14:25:48,704 - trainer - INFO - Epoch  43/300 | Train: 0.2366 | Val: 0.0666 | LR: 0.000150 | Time: 65.0s
+2025-10-19 14:26:53,653 - trainer - INFO - Epoch  44/300 | Train: 0.2363 | Val: 0.0695 | LR: 0.000150 | Time: 64.9s
+2025-10-19 14:27:58,749 - trainer - INFO - Epoch  45/300 | Train: 0.2356 | Val: 0.0693 | LR: 0.000150 | Time: 65.1s
+2025-10-19 14:29:03,739 - trainer - INFO - Epoch  46/300 | Train: 0.2354 | Val: 0.0684 | LR: 0.000150 | Time: 65.0s
+2025-10-19 14:30:43,008 - trainer - INFO - Epoch  47/300 | Train: 0.2344 | Val: 0.0704 | LR: 0.000150 | Time: 99.3s
+2025-10-19 14:31:47,888 - trainer - INFO - Epoch  48/300 | Train: 0.2344 | Val: 0.0673 | LR: 0.000150 | Time: 64.9s
+2025-10-19 14:32:52,777 - trainer - INFO - Epoch  49/300 | Train: 0.2346 | Val: 0.0662 | LR: 0.000150 | Time: 64.9s
+2025-10-19 14:33:57,662 - trainer - INFO - Epoch  50/300 | Train: 0.2338 | Val: 0.0675 | LR: 0.000150 | Time: 64.9s
+2025-10-19 14:35:02,615 - trainer - INFO - Epoch  51/300 | Train: 0.2325 | Val: 0.0658 | LR: 0.000150 | Time: 65.0s
+2025-10-19 14:56:11,005 - trainer - INFO - Epoch  52/300 | Train: 0.2326 | Val: 0.0697 | LR: 0.000150 | Time: 1268.4s
+2025-10-19 14:57:15,517 - trainer - INFO - Epoch  53/300 | Train: 0.2317 | Val: 0.0657 | LR: 0.000075 | Time: 64.5s
+2025-10-19 14:58:20,196 - trainer - INFO - Epoch  54/300 | Train: 0.2300 | Val: 0.0676 | LR: 0.000075 | Time: 64.7s
+2025-10-19 14:59:24,872 - trainer - INFO - Epoch  55/300 | Train: 0.2302 | Val: 0.0667 | LR: 0.000075 | Time: 64.7s
+2025-10-19 15:00:29,542 - trainer - INFO - Epoch  56/300 | Train: 0.2296 | Val: 0.0677 | LR: 0.000075 | Time: 64.7s
+2025-10-19 15:01:34,273 - trainer - INFO - Epoch  57/300 | Train: 0.2301 | Val: 0.0665 | LR: 0.000075 | Time: 64.7s
+2025-10-19 15:02:39,121 - trainer - INFO - Epoch  58/300 | Train: 0.2293 | Val: 0.0653 | LR: 0.000075 | Time: 64.8s
+2025-10-19 15:03:44,017 - trainer - INFO - Epoch  59/300 | Train: 0.2293 | Val: 0.0673 | LR: 0.000075 | Time: 64.9s
+2025-10-19 15:04:48,947 - trainer - INFO - Epoch  60/300 | Train: 0.2287 | Val: 0.0655 | LR: 0.000075 | Time: 64.9s
+2025-10-19 15:05:53,905 - trainer - INFO - Epoch  61/300 | Train: 0.2286 | Val: 0.0675 | LR: 0.000075 | Time: 65.0s
+2025-10-19 15:20:27,592 - trainer - INFO - Epoch  62/300 | Train: 0.2288 | Val: 0.0655 | LR: 0.000075 | Time: 873.7s
+2025-10-19 15:21:38,550 - trainer - INFO - Epoch  63/300 | Train: 0.2282 | Val: 0.0651 | LR: 0.000075 | Time: 71.0s
+2025-10-19 15:22:43,226 - trainer - INFO - Epoch  64/300 | Train: 0.2273 | Val: 0.0666 | LR: 0.000037 | Time: 64.7s
+2025-10-19 15:23:47,937 - trainer - INFO - Epoch  65/300 | Train: 0.2267 | Val: 0.0664 | LR: 0.000037 | Time: 64.7s
+2025-10-19 15:24:52,564 - trainer - INFO - Epoch  66/300 | Train: 0.2265 | Val: 0.0662 | LR: 0.000037 | Time: 64.6s
+2025-10-19 15:25:57,299 - trainer - INFO - Epoch  67/300 | Train: 0.2263 | Val: 0.0675 | LR: 0.000037 | Time: 64.7s
+2025-10-19 15:30:21,653 - trainer - INFO - Epoch  68/300 | Train: 0.2262 | Val: 0.0659 | LR: 0.000037 | Time: 264.4s
+2025-10-19 15:31:26,183 - trainer - INFO - Epoch  69/300 | Train: 0.2257 | Val: 0.0658 | LR: 0.000037 | Time: 64.5s
+2025-10-19 15:32:31,045 - trainer - INFO - Epoch  70/300 | Train: 0.2257 | Val: 0.0653 | LR: 0.000037 | Time: 64.9s
+2025-10-19 15:33:35,803 - trainer - INFO - Epoch  71/300 | Train: 0.2255 | Val: 0.0659 | LR: 0.000037 | Time: 64.8s
+2025-10-19 15:34:40,650 - trainer - INFO - Epoch  72/300 | Train: 0.2250 | Val: 0.0660 | LR: 0.000037 | Time: 64.8s
+2025-10-19 15:34:40,651 - trainer - INFO - Early stopping at epoch 72
+2025-10-19 15:34:40,651 - trainer - INFO - Training complete
+2025-10-19 15:34:40,651 - trainer - INFO - 
+======================================================================
+2025-10-19 15:34:40,651 - trainer - INFO - TESTING BEST MODEL
+2025-10-19 15:34:40,652 - trainer - INFO - ======================================================================
+2025-10-19 15:34:47,329 - trainer - INFO - 
+Overall Test Metrics:
+2025-10-19 15:34:47,330 - trainer - INFO -   MAE:  26.5279 µg/m³
+2025-10-19 15:34:47,330 - trainer - INFO -   RMSE: 49.2117 µg/m³
+2025-10-19 15:34:47,330 - trainer - INFO - 
+Time Window Analysis:
+2025-10-19 15:34:47,410 - trainer - INFO -   1-24h   : MAE= 26.53, RMSE= 49.21 µg/m³
+2025-10-19 15:34:47,517 - trainer - INFO - 
+Severe Pollution Events (PM2.5 > 75):
+2025-10-19 15:34:47,517 - trainer - INFO -   Frequency: 47.6% of data
+2025-10-19 15:34:47,517 - trainer - INFO -   MAE:  33.3248 µg/m³
+2025-10-19 15:34:47,518 - trainer - INFO -   RMSE: 58.7400 µg/m³
+2025-10-19 15:34:47,518 - trainer - INFO - ======================================================================
+
+2025-10-19 15:34:47,530 - __main__ - INFO - Done!

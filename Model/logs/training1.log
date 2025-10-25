@@ -1,0 +1,86 @@
+2025-10-19 11:08:26,123 - __main__ - INFO - Starting AirFormer training...
+2025-10-19 11:08:27,380 - __main__ - INFO - CUDA optimizations enabled (max performance mode)
+2025-10-19 11:08:27,380 - __main__ - INFO - Loading data...
+2025-10-19 11:08:35,050 - __main__ - INFO - Actual stations from data: 217
+2025-10-19 11:08:35,051 - __main__ - INFO - Sample input shape: torch.Size([16, 24, 217, 15])
+2025-10-19 11:08:35,051 - __main__ - INFO - Creating model...
+2025-10-19 11:08:35,080 - __main__ - INFO - Total parameters: 228,159
+2025-10-19 11:08:35,080 - __main__ - INFO - Trainable parameters: 228,159
+2025-10-19 11:08:35,080 - __main__ - INFO - Model size: ~0.87 MB (fp32)
+2025-10-19 11:08:36,347 - trainer - INFO - Mixed precision training enabled
+2025-10-19 11:08:36,347 - trainer - INFO - Gradient accumulation: 1 steps
+2025-10-19 11:08:36,347 - trainer - INFO - Gradient clipping: 5.0
+2025-10-19 11:08:36,348 - trainer - INFO - Weight decay: 1e-05
+2025-10-19 11:08:36,348 - trainer - INFO - LR scheduler: StepLR(step=3, gamma=0.5)
+2025-10-19 11:08:36,348 - trainer - INFO - Training...
+2025-10-19 11:09:54,090 - trainer - INFO - Epoch   1/150 | Train: 0.7454 | Val: 0.1335 | LR: 0.000500
+2025-10-19 11:09:54,118 - trainer - INFO -   Saved (val_loss: 0.1335)
+2025-10-19 11:11:09,565 - trainer - INFO - Epoch   2/150 | Train: 0.3533 | Val: 0.0855 | LR: 0.000500
+2025-10-19 11:11:09,589 - trainer - INFO -   Saved (val_loss: 0.0855)
+2025-10-19 11:12:24,830 - trainer - INFO - Epoch   3/150 | Train: 0.3260 | Val: 0.0794 | LR: 0.000250
+2025-10-19 11:12:24,851 - trainer - INFO -   Saved (val_loss: 0.0794)
+2025-10-19 11:13:40,285 - trainer - INFO - Epoch   4/150 | Train: 0.3038 | Val: 0.0827 | LR: 0.000250
+2025-10-19 11:14:55,909 - trainer - INFO - Epoch   5/150 | Train: 0.2965 | Val: 0.0772 | LR: 0.000250
+2025-10-19 11:14:55,934 - trainer - INFO -   Saved (val_loss: 0.0772)
+2025-10-19 11:16:11,691 - trainer - INFO - Epoch   6/150 | Train: 0.2875 | Val: 0.0830 | LR: 0.000125
+2025-10-19 11:17:27,438 - trainer - INFO - Epoch   7/150 | Train: 0.2841 | Val: 0.0699 | LR: 0.000125
+2025-10-19 11:17:27,462 - trainer - INFO -   Saved (val_loss: 0.0699)
+2025-10-19 11:18:43,228 - trainer - INFO - Epoch   8/150 | Train: 0.2810 | Val: 0.0703 | LR: 0.000125
+2025-10-19 11:19:59,054 - trainer - INFO - Epoch   9/150 | Train: 0.2770 | Val: 0.0689 | LR: 0.000063
+2025-10-19 11:19:59,079 - trainer - INFO -   Saved (val_loss: 0.0689)
+2025-10-19 11:22:39,131 - trainer - INFO - Epoch  10/150 | Train: 0.2749 | Val: 0.0690 | LR: 0.000063
+2025-10-19 11:23:55,825 - trainer - INFO - Epoch  11/150 | Train: 0.2742 | Val: 0.0686 | LR: 0.000063
+2025-10-19 11:23:55,848 - trainer - INFO -   Saved (val_loss: 0.0686)
+2025-10-19 11:25:11,685 - trainer - INFO - Epoch  12/150 | Train: 0.2717 | Val: 0.0686 | LR: 0.000031
+2025-10-19 11:26:27,469 - trainer - INFO - Epoch  13/150 | Train: 0.2695 | Val: 0.0683 | LR: 0.000031
+2025-10-19 11:26:27,491 - trainer - INFO -   Saved (val_loss: 0.0683)
+2025-10-19 11:27:43,281 - trainer - INFO - Epoch  14/150 | Train: 0.2711 | Val: 0.0680 | LR: 0.000031
+2025-10-19 11:27:43,304 - trainer - INFO -   Saved (val_loss: 0.0680)
+2025-10-19 11:28:59,122 - trainer - INFO - Epoch  15/150 | Train: 0.2687 | Val: 0.0690 | LR: 0.000016
+2025-10-19 11:30:14,991 - trainer - INFO - Epoch  16/150 | Train: 0.2690 | Val: 0.0677 | LR: 0.000016
+2025-10-19 11:30:15,017 - trainer - INFO -   Saved (val_loss: 0.0677)
+2025-10-19 11:33:16,473 - trainer - INFO - Epoch  17/150 | Train: 0.2690 | Val: 0.0690 | LR: 0.000016
+2025-10-19 11:34:32,331 - trainer - INFO - Epoch  18/150 | Train: 0.2683 | Val: 0.0678 | LR: 0.000008
+2025-10-19 11:35:48,035 - trainer - INFO - Epoch  19/150 | Train: 0.2680 | Val: 0.0679 | LR: 0.000008
+2025-10-19 11:37:03,891 - trainer - INFO - Epoch  20/150 | Train: 0.2676 | Val: 0.0680 | LR: 0.000008
+2025-10-19 11:46:12,679 - trainer - INFO - Epoch  21/150 | Train: 0.2678 | Val: 0.0680 | LR: 0.000004
+2025-10-19 11:47:28,175 - trainer - INFO - Epoch  22/150 | Train: 0.2681 | Val: 0.0679 | LR: 0.000004
+2025-10-19 11:48:43,645 - trainer - INFO - Epoch  23/150 | Train: 0.2684 | Val: 0.0679 | LR: 0.000004
+2025-10-19 11:49:59,073 - trainer - INFO - Epoch  24/150 | Train: 0.2677 | Val: 0.0674 | LR: 0.000002
+2025-10-19 11:49:59,097 - trainer - INFO -   Saved (val_loss: 0.0674)
+2025-10-19 11:51:14,704 - trainer - INFO - Epoch  25/150 | Train: 0.2672 | Val: 0.0677 | LR: 0.000002
+2025-10-19 11:52:30,431 - trainer - INFO - Epoch  26/150 | Train: 0.2669 | Val: 0.0674 | LR: 0.000002
+2025-10-19 11:53:46,188 - trainer - INFO - Epoch  27/150 | Train: 0.2670 | Val: 0.0675 | LR: 0.000001
+2025-10-19 11:55:02,035 - trainer - INFO - Epoch  28/150 | Train: 0.2667 | Val: 0.0678 | LR: 0.000001
+2025-10-19 11:56:17,916 - trainer - INFO - Epoch  29/150 | Train: 0.2675 | Val: 0.0682 | LR: 0.000001
+2025-10-19 11:57:33,787 - trainer - INFO - Epoch  30/150 | Train: 0.2675 | Val: 0.0679 | LR: 0.000000
+2025-10-19 11:58:49,993 - trainer - INFO - Epoch  31/150 | Train: 0.2668 | Val: 0.0676 | LR: 0.000000
+2025-10-19 12:00:06,465 - trainer - INFO - Epoch  32/150 | Train: 0.2676 | Val: 0.0678 | LR: 0.000000
+2025-10-19 12:01:22,785 - trainer - INFO - Epoch  33/150 | Train: 0.2673 | Val: 0.0682 | LR: 0.000000
+2025-10-19 12:02:39,056 - trainer - INFO - Epoch  34/150 | Train: 0.2665 | Val: 0.0680 | LR: 0.000000
+2025-10-19 12:03:55,296 - trainer - INFO - Epoch  35/150 | Train: 0.2677 | Val: 0.0678 | LR: 0.000000
+2025-10-19 12:05:45,133 - trainer - INFO - Epoch  36/150 | Train: 0.2676 | Val: 0.0682 | LR: 0.000000
+2025-10-19 12:07:01,006 - trainer - INFO - Epoch  37/150 | Train: 0.2677 | Val: 0.0676 | LR: 0.000000
+2025-10-19 12:08:17,017 - trainer - INFO - Epoch  38/150 | Train: 0.2666 | Val: 0.0678 | LR: 0.000000
+2025-10-19 12:09:33,109 - trainer - INFO - Epoch  39/150 | Train: 0.2677 | Val: 0.0681 | LR: 0.000000
+2025-10-19 12:09:33,110 - trainer - INFO - Early stopping at epoch 39
+2025-10-19 12:09:33,110 - trainer - INFO - Training complete
+2025-10-19 12:09:33,110 - trainer - INFO - 
+======================================================================
+2025-10-19 12:09:33,110 - trainer - INFO - TESTING BEST MODEL
+2025-10-19 12:09:33,110 - trainer - INFO - ======================================================================
+2025-10-19 12:09:39,586 - trainer - INFO - 
+Overall Test Metrics:
+2025-10-19 12:09:39,587 - trainer - INFO -   MAE:  27.0598 µg/m³
+2025-10-19 12:09:39,587 - trainer - INFO -   RMSE: 50.0308 µg/m³
+2025-10-19 12:09:39,587 - trainer - INFO - 
+Time Window Analysis:
+2025-10-19 12:09:39,651 - trainer - INFO -   1-24h   : MAE= 27.06, RMSE= 50.03 µg/m³
+2025-10-19 12:09:39,742 - trainer - INFO - 
+Severe Pollution Events (PM2.5 > 75):
+2025-10-19 12:09:39,743 - trainer - INFO -   Frequency: 47.6% of data
+2025-10-19 12:09:39,743 - trainer - INFO -   MAE:  35.8375 µg/m³
+2025-10-19 12:09:39,744 - trainer - INFO -   RMSE: 60.9146 µg/m³
+2025-10-19 12:09:39,744 - trainer - INFO - ======================================================================
+
+2025-10-19 12:09:39,750 - __main__ - INFO - Done!
