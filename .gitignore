@@ -1,0 +1,3 @@
+# Ignore data files and preprocessed data
+DataPreparation/Data/
+DataPreparation/DataPreprocessed/
