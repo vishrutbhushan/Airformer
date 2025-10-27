@@ -93,7 +93,7 @@ def prepare_data_for_model(data_folder, output_dir):
         val[..., i] = scaler.transform(val_flat).reshape(val[..., i].shape)
         test[..., i] = scaler.transform(test_flat).reshape(test[..., i].shape)
         scalers.append(scaler)
-        logger.debug(f"Feature {CORE_FEATURES[i]}: mean={scaler.mean_[0]:.3f}, std={scaler.scale_[0]:.3f}")
+        logger.info(f"Feature {CORE_FEATURES[i]}: mean={scaler.mean_[0]:.3f}, std={scaler.scale_[0]:.3f}")
     logger.info(f"Standardization complete with {len(scalers)} feature scalers")
     seq_len_hours = 72
     horizon_hours = 72

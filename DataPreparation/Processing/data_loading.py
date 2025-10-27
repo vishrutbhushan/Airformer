@@ -1,4 +1,5 @@
 import pandas as pd
+from sympy import limit
 from config import logger, CORE_FEATURES, LIMITS, FEATURE_MAPPING, DROP_COLS, START_DATE, END_DATE
 
 def load_spatial_coordinates(spatial_file):
@@ -40,8 +41,11 @@ def interpolate_station_data(df):
     for col in feature_cols:
         df[col] = pd.to_numeric(df[col], errors='coerce')
         if df[col].notna().any():
-            df[col] = df[col].interpolate(method='linear', limit_direction='both')
-            df[col] = df[col].ffill().bfill()
+            df[col] = df[col].interpolate(method='linear', limit=2)
+            df[col] = df[col].ffill(limit=2).bfill(limit=2)
+            if df[col].isna().any():
+                default_val = df[col].mean()
+                df[col] = df[col].fillna(default_val)
     remaining_nulls = df[feature_cols].isna().sum().sum()
     interpolated_count = original_nulls - remaining_nulls
     return df, interpolated_count, capped_count

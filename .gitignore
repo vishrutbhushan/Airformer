@@ -1,3 +1,9 @@
 # Ignore data files and preprocessed data
 DataPreparation/Data/
 DataPreparation/DataPreprocessed/
+Post/stitched_station_plots/
+
+*.npz
+*.pyc
+*.pkl
+*.pth
