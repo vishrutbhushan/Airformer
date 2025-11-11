@@ -55,11 +55,15 @@ def process_all_stations(input_folder, output_folder, spatial_file):
             lat, lon = spatial_coords[station_code]
             resampled['latitude'] = lat
             resampled['longitude'] = lon
+            # Log % missing timesteps for this station
+            missing_timesteps = resampled[CORE_FEATURES].isna().all(axis=1).sum()
+            percent_missing = (missing_timesteps / len(expected_timestamps)) * 100
             has_all_features = all(resampled[feature].notna().any() if feature in resampled.columns else False for feature in CORE_FEATURES)
             if not has_all_features:
                 removed_missing_features += 1
                 logger.debug(f"Station {station_code}: Removed due to missing core features")
                 continue
+            logger.info(f"Station {station_code}: {missing_timesteps}/{len(expected_timestamps)} timesteps missing ({percent_missing:.2f}%) after reindexing.")
             for feature in CORE_FEATURES:
                 if feature in resampled.columns:
                     resampled[feature] = resampled[feature].interpolate(method='linear', limit=8)
