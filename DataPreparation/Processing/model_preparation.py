@@ -75,12 +75,37 @@ def prepare_data_for_model(data_folder, output_dir):
                 logger.warning(f"Feature {feature} missing in {station['station_code']}")
                 data[:, i, j] = 0.0
     logger.info(f"Data matrix filled successfully: {data.shape}")
-    train_size = int(len(data) * 0.7)
-    val_size = int(len(data) * 0.1)
+    # Ensure sufficient data for sequence creation
+    seq_len = 24  # Will be computed below
+    horizon = 24  # Will be computed below
+    seq_len_hours = 72
+    horizon_hours = 72
+    seq_len = seq_len_hours // 3
+    horizon = horizon_hours // 3
+    min_required_samples = seq_len + horizon
+    
+    # Adjust split if needed to ensure minimum samples per split
+    total_available = len(data) - min_required_samples
+    if total_available <= 0:
+        logger.error(f"Not enough data! Total: {len(data)}, Required minimum: {min_required_samples}")
+        raise ValueError(f"Insufficient data for sequence creation. Need at least {min_required_samples} timesteps")
+    
+    train_size = max(int(total_available * 0.7), min_required_samples)
+    val_size = max(int(total_available * 0.15), min_required_samples)
+    test_size = max(total_available - train_size - val_size, min_required_samples)
+    
+    # Redistribute if sizes exceed available
+    if train_size + val_size + test_size > len(data):
+        train_size = int(len(data) * 0.7)
+        val_size = int(len(data) * 0.15)
+        test_size = len(data) - train_size - val_size
+        logger.warning(f"Redistributing data sizes to fit within total length")
+    
     train = data[:train_size].copy()
     val = data[train_size:train_size+val_size].copy()
     test = data[train_size+val_size:].copy()
     logger.info(f"Data split - Train: {len(train)}, Validation: {len(val)}, Test: {len(test)}")
+    logger.info(f"Minimum required per split: {min_required_samples} (seq_len={seq_len} + horizon={horizon})")
     logger.info("Applying feature-wise standardization...")
     scalers = []
     for i in range(n_features):

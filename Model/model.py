@@ -3,12 +3,292 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
+
+class KANLayer(nn.Module):
+    """
+    Kolmogorov–Arnold Network (KAN) Layer.
+    Uses learnable sine basis functions to expand input dimensionality, providing
+    a powerful non-linear transformation that can learn complex patterns efficiently.
+    
+    Reference: Kolmogorov-Arnold Networks (2024)
+    """
+    def __init__(self, in_dim, out_dim, num_basis=8, grid_size=5, grid_min=-1.0, grid_max=1.0):
+        """
+        Initializes the KAN layer.
+        
+        Args:
+            in_dim (int): Input feature dimension.
+            out_dim (int): Output feature dimension.
+            num_basis (int): Number of basis functions per input dimension.
+            grid_size (int): Number of grid points for spline knots.
+            grid_min (float): Minimum value for grid initialization.
+            grid_max (float): Maximum value for grid initialization.
+        """
+        super().__init__()
+        
+        # Handle in_dim as int or list/tuple
+        if isinstance(in_dim, (list, tuple)):
+            if len(in_dim) == 0:
+                raise ValueError("in_dim must be a positive integer or non-empty list/tuple")
+            in_dim = int(in_dim[0])
+        
+        self.in_dim = int(in_dim)
+        self.out_dim = int(out_dim)
+        self.num_basis = int(num_basis)
+        self.grid_size = int(grid_size)
+        
+        # Learnable coefficients for basis expansion: (out_dim, in_dim, num_basis)
+        self.coeff = nn.Parameter(torch.randn(self.out_dim, self.in_dim, self.num_basis) * 0.1)
+        
+        # Per-channel frequencies for greater expressivity: (in_dim, num_basis)
+        self.freq = nn.Parameter(torch.randn(self.in_dim, self.num_basis) * 0.1)
+        
+        # Phase shifts for basis functions: (num_basis,)
+        self.phase = nn.Parameter(torch.zeros(self.num_basis))
+        
+        # Linear skip connection for residual learning
+        self.linear = nn.Linear(self.in_dim, self.out_dim)
+        
+        # Optional learnable activation scales per dimension
+        self.activation_scale = nn.Parameter(torch.ones(self.in_dim, 1))
+
+    def forward(self, x):
+        """
+        Forward pass applying KAN transformation.
+        
+        Args:
+            x (torch.Tensor): Input tensor of shape (..., in_dim)
+            
+        Returns:
+            torch.Tensor: Output tensor of shape (..., out_dim)
+        """
+        if x.shape[-1] != self.in_dim:
+            raise ValueError(f"KANLayer expected input last-dim {self.in_dim}, got {x.shape[-1]}")
+        
+        # Apply activation scaling and create basis functions
+        x_scaled = x * self.activation_scale.t()
+        
+        # Generate sine basis functions: (..., in_dim, num_basis)
+        basis = torch.sin(x_scaled.unsqueeze(-1) * self.freq.unsqueeze(0) + self.phase.view(1, 1, -1))
+        
+        # Contract over input dimensions: (..., in_dim, num_basis) @ (out_dim, in_dim, num_basis)
+        # Using einsum for efficient batched operation
+        y = torch.einsum('...in,oin->...o', basis, self.coeff)
+        
+        # Add linear residual connection for better gradient flow
+        return self.linear(x) + y
+
+
+class KANFeedForward(nn.Module):
+    """
+    KAN-based FeedForward layer.
+    Replaces traditional MLP with KAN layers for more expressive non-linear transformations
+    while maintaining computational efficiency.
+    """
+    def __init__(self, dim, hidden_dim, dropout=0., num_basis=8):
+        """
+        Initializes the KAN-based FeedForward layer.
+        
+        Args:
+            dim (int): Input/output dimension.
+            hidden_dim (int): Hidden dimension.
+            dropout (float): Dropout rate.
+            num_basis (int): Number of basis functions for KAN layers.
+        """
+        super().__init__()
+        self.kan_in = KANLayer(dim, hidden_dim, num_basis=num_basis)
+        self.kan_out = KANLayer(hidden_dim, dim, num_basis=num_basis)
+        self.dropout = nn.Dropout(dropout)
+        self.activation = nn.GELU()
+
+    def forward(self, x):
+        """
+        Forward pass through KAN layers with activation and dropout.
+        
+        Args:
+            x (torch.Tensor): Input tensor
+            
+        Returns:
+            torch.Tensor: Transformed output tensor
+        """
+        x = self.kan_in(x)
+        x = self.activation(x)
+        x = self.dropout(x)
+        x = self.kan_out(x)
+        x = self.dropout(x)
+        return x
+
+
+class WindAwareBias(nn.Module):
+    """
+    Computes wind-aware dynamic attention bias based on wind speed and direction.
+    
+    The bias enhances attention to upwind regions (pollution sources) and attenuates 
+    attention to downwind regions. This embeds the physical relationship between wind 
+    patterns and pollution transport directly into the attention mechanism.
+    """
+    def __init__(self, num_nodes, num_sectors=8, n_rings=3, radii=[50, 200, 500],
+                 wind_speed_idx=12, wind_direction_idx=13, device=None):
+        """
+        Initializes the WindAwareBias module.
+        
+        Args:
+            num_nodes (int): Number of spatial nodes (stations).
+            num_sectors (int): Number of dartboard sectors (typically 8).
+            n_rings (int): Number of dartboard rings.
+            radii (list): Ring radii in km for dartboard.
+            wind_speed_idx (int): Feature index for wind speed in input tensor.
+            wind_direction_idx (int): Feature index for wind direction in input tensor.
+            device (torch.device): Device to run computations on.
+        """
+        super().__init__()
+        self.num_nodes = num_nodes
+        self.num_sectors = num_sectors
+        self.n_rings = n_rings
+        self.radii = radii
+        self.wind_speed_idx = wind_speed_idx
+        self.wind_direction_idx = wind_direction_idx
+        self.device = device
+        
+        # Region indexing: region 0 is the center, regions 1..n_sectors are ring 1,
+        # regions n_sectors+1..2*n_sectors are ring 2, etc.
+        self.n_regions = 1 + n_rings * num_sectors
+        
+    def get_sector_from_direction(self, wind_direction):
+        """
+        Converts wind direction (0-360°) to sector index (0 to num_sectors-1).
+        Wind direction is where wind COMES FROM, so upwind sectors get positive bias.
+        
+        Args:
+            wind_direction (float): Wind direction in degrees (0-360).
+            
+        Returns:
+            int: Sector index (0 to num_sectors-1).
+        """
+        sector_size = 360.0 / self.num_sectors
+        # Add half sector offset to align sectors correctly
+        sector = int((wind_direction + sector_size / 2) % 360 / sector_size)
+        return sector % self.num_sectors
+    
+    def get_ring_from_speed(self, wind_speed, radii):
+        """
+        Determines which ring(s) to boost based on wind speed.
+        Stronger winds can transport pollution over longer distances.
+        
+        Args:
+            wind_speed (float): Wind speed in m/s.
+            radii (list): Ring radii in km.
+            
+        Returns:
+            list: Ring indices (1-indexed from rings list) to boost.
+        """
+        rings_to_boost = []
+        # Low wind speed: focus on nearby upwind (ring 1)
+        if wind_speed < 3.0:
+            rings_to_boost = [0]  # Ring 1 (0-50km)
+        # Medium wind: consider mid-range (rings 1 and 2)
+        elif wind_speed < 6.0:
+            rings_to_boost = [0, 1]  # Rings 1-2 (0-200km)
+        # Strong wind: consider all ranges
+        else:
+            rings_to_boost = list(range(len(radii)))  # All rings
+        
+        return rings_to_boost
+    
+    def compute_wind_aware_bias(self, wind_speed, wind_direction, assignment=None, mask=None):
+        """
+        Computes dynamic attention bias based on wind data.
+        
+        Args:
+            wind_speed (torch.Tensor): Wind speed values. Shape: (batch_size, num_nodes) or (batch_size, seq_len, num_nodes).
+            wind_direction (torch.Tensor): Wind direction values in degrees. Shape: (batch_size, num_nodes) or (batch_size, seq_len, num_nodes).
+            assignment (torch.Tensor, optional): Dartboard assignment matrix shape (num_nodes, num_nodes, n_regions).
+            mask (torch.Tensor, optional): Dartboard mask matrix shape (num_nodes, n_regions).
+            
+        Returns:
+            torch.Tensor: Bias tensor of shape (batch_size, num_nodes, 1, n_regions) to add to attention scores.
+        """
+        batch_size = wind_speed.shape[0]
+        device = wind_speed.device
+        
+        # Handle both 2D and 3D inputs (batch, nodes) or (batch, seq, nodes)
+        if wind_speed.dim() == 3:
+            # Take the last timestep if temporal dimension exists
+            wind_speed = wind_speed[:, -1, :]
+            wind_direction = wind_direction[:, -1, :]
+        
+        # Initialize bias: shape (batch_size, num_nodes, n_regions)
+        bias = torch.zeros(batch_size, self.num_nodes, self.n_regions, device=device)
+        
+        # Debug
+        # print(f"[DEBUG] batch_size={batch_size}, num_nodes={self.num_nodes}, n_regions={self.n_regions}, bias.shape={bias.shape}")
+        
+        # Process each node in the batch
+        for b in range(batch_size):
+            for node_idx in range(self.num_nodes):
+                ws = wind_speed[b, node_idx].item()
+                wd = wind_direction[b, node_idx].item()
+                
+                # Get wind direction sector (where wind comes FROM)
+                upwind_sector = self.get_sector_from_direction(wd)
+                
+                # Get rings to boost based on wind speed
+                rings_to_boost = self.get_ring_from_speed(ws, self.radii)
+                
+                # Center region (region 0) - self, no bias
+                bias[b, node_idx, 0] = 0.0
+                
+                # For upwind sectors in boosted rings: give positive bias (attract attention)
+                for ring_idx in rings_to_boost:
+                    region_idx = 1 + ring_idx * self.num_sectors + upwind_sector
+                    if region_idx < self.n_regions:
+                        # Strong bias for upwind regions (primary pollution sources)
+                        bias[b, node_idx, region_idx] = 3.0  # Amplifies upwind attention
+                
+                # For downwind sectors in boosted rings: give negative bias (repel attention)
+                downwind_sector = (upwind_sector + self.num_sectors // 2) % self.num_sectors
+                for ring_idx in rings_to_boost:
+                    region_idx = 1 + ring_idx * self.num_sectors + downwind_sector
+                    if region_idx < self.n_regions:
+                        # Negative bias for downwind regions (pollution affected regions)
+                        bias[b, node_idx, region_idx] = -2.0
+                
+                # Apply mask: regions not in dartboard assignment should stay at 0 (neutral)
+                # The regular mask will handle setting them to -inf later
+                # We only apply bias to regions that are valid according to the mask
+                if mask is not None and node_idx < mask.size(0):
+                    mask_node = mask[node_idx, :]  # Shape: (n_regions,), True = valid, False = invalid
+                    # Only keep biases for valid regions
+                    bias[b, node_idx, ~mask_node] = 0.0  # Set invalid regions to 0 (neutral bias)
+        
+        # Reshape to (batch_size, num_nodes, 1, n_regions) for attention broadcasting
+        bias = bias.unsqueeze(2)
+        
+        return bias
+    
+    def forward(self, wind_speed, wind_direction, assignment=None, mask=None):
+        """
+        Args:
+            wind_speed (torch.Tensor): Wind speed values (scaled).
+            wind_direction (torch.Tensor): Wind direction values in degrees (scaled).
+            assignment (torch.Tensor, optional): Dartboard assignment matrix.
+            mask (torch.Tensor, optional): Dartboard mask matrix.
+            
+        Returns:
+            torch.Tensor: Wind-aware bias tensor.
+        """
+        return self.compute_wind_aware_bias(wind_speed, wind_direction, assignment, mask)
+
+
 class LatentLayer(nn.Module):
     """
     Encodes input features to produce the parameters (mu and sigma) of a latent variable distribution.
     This layer is a core component of the stochastic model, enabling the capture of uncertainty.
+    
+    Enhanced with KAN layers for improved non-linear feature transformation before
+    computing distribution parameters.
     """
-    def __init__(self, dm_dim, latent_dim_in, latent_dim_out, hidden_dim, num_layers=2):
+    def __init__(self, dm_dim, latent_dim_in, latent_dim_out, hidden_dim, num_layers=2, use_kan=True, num_basis=8):
         """
         Initializes the LatentLayer.
 
@@ -18,19 +298,46 @@ class LatentLayer(nn.Module):
             latent_dim_out (int): Output latent dimension.
             hidden_dim (int): Dimension of the hidden layers.
             num_layers (int): Number of hidden layers in the encoder.
+            use_kan (bool): Whether to use KAN layers for hidden transformations.
+            num_basis (int): Number of basis functions for KAN layers.
         """
         super().__init__()
         self.num_layers = num_layers
+        self.use_kan = use_kan
+        self.hidden_dim = hidden_dim
+        
+        # Initial projection: Conv2d for spatial-temporal structure preservation
         self.enc_in = nn.Conv2d(dm_dim + latent_dim_in, hidden_dim, 1)
         
-        layers = []
-        for _ in range(num_layers):
-            layers.append(nn.Conv2d(hidden_dim, hidden_dim, 1))
-            layers.append(nn.ReLU(inplace=True))
-        self.enc_hidden = nn.Sequential(*layers)
+        # Build hidden layers with optional KAN
+        if use_kan:
+            # KAN-based hidden layers for better non-linear modeling
+            self.enc_hidden = nn.ModuleList()
+            for i in range(num_layers):
+                self.enc_hidden.append(
+                    nn.Sequential(
+                        nn.Conv2d(hidden_dim, hidden_dim, 1),  # Depthwise convolution
+                        nn.BatchNorm2d(hidden_dim),
+                    )
+                )
+            # Separate KAN projection layers for each position (applied after conv)
+            self.kan_layers = nn.ModuleList([
+                KANLayer(hidden_dim, hidden_dim, num_basis=num_basis)
+                for _ in range(num_layers)
+            ])
+        else:
+            # Standard Conv2d with ReLU
+            layers = []
+            for _ in range(num_layers):
+                layers.append(nn.Conv2d(hidden_dim, hidden_dim, 1))
+                layers.append(nn.ReLU(inplace=True))
+            self.enc_hidden = nn.Sequential(*layers)
         
-        self.enc_out_1 = nn.Conv2d(hidden_dim, latent_dim_out, 1)
-        self.enc_out_2 = nn.Conv2d(hidden_dim, latent_dim_out, 1)
+        # Output projections for distribution parameters
+        self.enc_out_1 = nn.Conv2d(hidden_dim, latent_dim_out, 1)  # mu
+        self.enc_out_2 = nn.Conv2d(hidden_dim, latent_dim_out, 1)  # log_sigma
+        
+        self.activation = nn.ReLU()
 
     def forward(self, x):
         """
@@ -48,10 +355,29 @@ class LatentLayer(nn.Module):
                                         Shape: (batch_size, latent_dim_out, num_nodes, seq_len)
         """
         h = self.enc_in(x)
-        for i in range(self.num_layers):
-            h = self.enc_hidden[i](h)
-        mu = torch.minimum(self.enc_out_1(h), torch.ones_like(h)*10)
-        sigma = torch.minimum(self.enc_out_2(h), torch.ones_like(h)*10)
+        
+        if self.use_kan:
+            # Apply KAN-enhanced layers
+            for i, (conv_layer, kan_layer) in enumerate(zip(self.enc_hidden, self.kan_layers)):
+                h = conv_layer(h)  # Conv2d + BatchNorm
+                
+                # Apply KAN layer on spatial-temporal dimensions
+                b, c, n, t = h.shape
+                h_reshaped = h.permute(0, 2, 3, 1).reshape(-1, c)  # Flatten spatial-temporal
+                h_kan = kan_layer(h_reshaped)
+                h = h_kan.reshape(b, n, t, c).permute(0, 3, 1, 2)  # Reshape back
+                
+                h = self.activation(h)
+        else:
+            # Standard processing
+            for i in range(self.num_layers):
+                h = self.enc_hidden[i](h)
+        
+        # Generate distribution parameters with clamping for stability
+        mu = torch.clamp(self.enc_out_1(h), min=-10, max=10)
+        log_sigma = torch.clamp(self.enc_out_2(h), min=-10, max=10)
+        sigma = torch.exp(log_sigma) + 1e-6  # Add small epsilon for numerical stability
+        
         return mu, sigma
 
 
@@ -59,8 +385,10 @@ class StochasticModel(nn.Module):
     """
     Manages a stack of LatentLayers to create a hierarchical stochastic model.
     This allows for capturing dependencies and uncertainties at multiple levels of abstraction.
+    
+    Enhanced with KAN layers for improved latent variable modeling.
     """
-    def __init__(self, dm_dim, latent_dim, num_blocks=4):
+    def __init__(self, dm_dim, latent_dim, num_blocks=4, use_kan=True, num_basis=8):
         """
         Initializes the StochasticModel.
 
@@ -68,16 +396,20 @@ class StochasticModel(nn.Module):
             dm_dim (int): Dimension of the deterministic memory input.
             latent_dim (int): Dimension of the latent variables.
             num_blocks (int): Number of hierarchical blocks (and thus LatentLayers).
+            use_kan (bool): Whether to use KAN layers in LatentLayers.
+            num_basis (int): Number of basis functions for KAN layers.
         """
         super().__init__()
         self.layers = nn.ModuleList()
         
         # Bottom n-1 layers receive deterministic memory and latent variables from the layer below.
         for _ in range(num_blocks-1):
-            self.layers.append(LatentLayer(dm_dim, latent_dim, latent_dim, latent_dim, 2))
+            self.layers.append(LatentLayer(dm_dim, latent_dim, latent_dim, latent_dim, 2, 
+                                          use_kan=use_kan, num_basis=num_basis))
         
         # The top layer only receives deterministic memory.
-        self.layers.append(LatentLayer(dm_dim, 0, latent_dim, latent_dim, 2))
+        self.layers.append(LatentLayer(dm_dim, 0, latent_dim, latent_dim, 2, 
+                                      use_kan=use_kan, num_basis=num_basis))
 
     def reparameterize(self, mu, sigma):
         """
@@ -92,7 +424,7 @@ class StochasticModel(nn.Module):
             torch.Tensor: A sample from the latent distribution.
         """
         eps = torch.randn_like(sigma, requires_grad=False)
-        return mu + eps*sigma
+        return mu + eps * sigma
 
     def forward(self, d):
         """
@@ -112,15 +444,13 @@ class StochasticModel(nn.Module):
                                          Shape: (num_blocks, batch_size, latent_dim, num_nodes, seq_len)
         """
         # d: [num_blocks, b, c, n, t]
-        _mu, _logsigma = self.layers[-1](d[-1])
-        _sigma = torch.exp(_logsigma) + 1e-3
+        _mu, _sigma = self.layers[-1](d[-1])
         mus = [_mu]
         sigmas = [_sigma]
         z = [self.reparameterize(_mu, _sigma)]
 
         for i in reversed(range(len(self.layers)-1)):
-            _mu, _logsigma = self.layers[i](torch.cat((d[i], z[-1]), dim=1))
-            _sigma = torch.exp(_logsigma) + 1e-3
+            _mu, _sigma = self.layers[i](torch.cat((d[i], z[-1]), dim=1))
             mus.append(_mu)
             sigmas.append(_sigma)
             z.append(self.reparameterize(_mu, _sigma))
@@ -134,9 +464,12 @@ class SpatialAttention(nn.Module):
     """
     Computes multi-head self-attention across spatial nodes (e.g., air quality monitoring stations).
     This allows the model to learn spatial dependencies by attending to different sectors or regions.
+    Enhanced with wind-aware dynamic bias for physically-grounded attention.
     """
     def __init__(self, dim, heads=4, qkv_bias=False, qk_scale=None, dropout=0., 
-                 num_sectors=17, assignment=None, mask=None):
+                 num_sectors=17, assignment=None, mask=None, use_wind_bias=False,
+                 wind_speed_idx=12, wind_direction_idx=13, n_rings=3, radii=[50, 200, 500],
+                 num_wind_sectors=8):
         """
         Initializes the SpatialAttention module.
 
@@ -149,6 +482,11 @@ class SpatialAttention(nn.Module):
             num_sectors (int): Number of spatial sectors.
             assignment (torch.Tensor): Assignment matrix mapping nodes to sectors.
             mask (torch.Tensor): Mask to prevent attention to certain sectors.
+            use_wind_bias (bool): Whether to use wind-aware dynamic bias.
+            wind_speed_idx (int): Index of wind speed feature.
+            wind_direction_idx (int): Index of wind direction feature.
+            n_rings (int): Number of dartboard rings.
+            radii (list): Radii of dartboard rings.
         """
         super().__init__()
         assert dim % heads == 0
@@ -160,19 +498,37 @@ class SpatialAttention(nn.Module):
         self.num_sector = num_sectors
         self.assignment = assignment
         self.mask = mask
+        self.use_wind_bias = use_wind_bias
+        self.wind_speed_idx = wind_speed_idx
+        self.wind_direction_idx = wind_direction_idx
 
         self.q_linear = nn.Linear(dim, dim, bias=qkv_bias)
         self.kv_linear = nn.Linear(dim, dim * 2, bias=qkv_bias)
         self.relative_bias = nn.Parameter(torch.randn(heads, 1, num_sectors))
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(dropout)
+        
+        # Wind-aware bias module
+        if use_wind_bias:
+            self.wind_bias = WindAwareBias(
+                num_nodes=assignment.shape[0] if assignment is not None else 1,
+                num_sectors=num_wind_sectors,
+                n_rings=n_rings,
+                radii=radii,
+                wind_speed_idx=wind_speed_idx,
+                wind_direction_idx=wind_direction_idx,
+                device=assignment.device if assignment is not None else None
+            )
 
-    def forward(self, x):
+    def forward(self, x, wind_speed=None, wind_direction=None, scalers=None):
         """
-        Forward pass for spatial attention.
+        Forward pass for spatial attention with optional wind-aware bias.
 
         Args:
             x (torch.Tensor): Input tensor. Shape: (batch_size * seq_len, num_nodes, channels)
+            wind_speed (torch.Tensor, optional): Wind speed values. Shape: (batch_size, seq_len, num_nodes) or (batch_size, num_nodes)
+            wind_direction (torch.Tensor, optional): Wind direction values. Shape: (batch_size, seq_len, num_nodes) or (batch_size, num_nodes)
+            scalers (dict, optional): Dictionary containing scalers to inverse-transform wind features.
 
         Returns:
             torch.Tensor: Output tensor with spatially attended features.
@@ -190,6 +546,43 @@ class SpatialAttention(nn.Module):
 
         attn = (q @ k.transpose(-2, -1)) * self.scale
         attn = attn.reshape(B, N, self.num_heads, 1, self.num_sector) + self.relative_bias
+        
+        # Add wind-aware dynamic bias if available
+        if self.use_wind_bias and wind_speed is not None and wind_direction is not None:
+            # Inverse-scale wind features to physical units
+            if scalers is not None and 'wind_speed_scaler' in scalers and 'wind_direction_scaler' in scalers:
+                ws_scaler = scalers['wind_speed_scaler']
+                wd_scaler = scalers['wind_direction_scaler']
+                
+                # Reshape wind data if needed: (B, T, N) -> (B*T, N)
+                orig_ws_shape = wind_speed.shape
+                orig_wd_shape = wind_direction.shape
+                
+                if wind_speed.dim() == 3:
+                    B_wind, T_wind, N_wind = wind_speed.shape
+                    wind_speed = wind_speed.reshape(B_wind * T_wind, N_wind)
+                    wind_direction = wind_direction.reshape(B_wind * T_wind, N_wind)
+                
+                # Inverse transform: bring from [-1, 1] scale back to physical units
+                wind_speed_physical = ws_scaler.inverse_transform(wind_speed.cpu().numpy())
+                wind_direction_physical = wd_scaler.inverse_transform(wind_direction.cpu().numpy())
+                
+                wind_speed = torch.from_numpy(wind_speed_physical).float().to(attn.device)
+                wind_direction = torch.from_numpy(wind_direction_physical).float().to(attn.device)
+            
+            # Ensure wind data is on the same device
+            wind_speed = wind_speed.to(attn.device)
+            wind_direction = wind_direction.to(attn.device)
+            
+            # Compute wind-aware bias
+            wind_bias = self.wind_bias(wind_speed, wind_direction, self.assignment, self.mask)
+            # wind_bias shape: (B*T, N, 1, n_regions) - already has one unsqueeze from compute function
+            wind_bias = wind_bias.unsqueeze(2)  # (B*T, N, 1, 1, n_regions)
+            wind_bias = wind_bias.expand(-1, -1, self.num_heads, -1, -1)  # (B*T, N, heads, 1, n_regions)
+            
+            # Add wind bias to attention scores
+            attn = attn + wind_bias
+        
         mask = self.mask.reshape(1, N, 1, 1, self.num_sector)
         attn = attn.masked_fill_(mask, float("-inf")).reshape(B * N, self.num_heads, 1, self.num_sector).softmax(dim=-1)
 
@@ -289,18 +682,35 @@ class PreNorm(nn.Module):
 
 class FeedForward(nn.Module):
     """
-    A standard two-layer MLP with GELU activation and dropout.
-    Used as the feedforward network in the transformer blocks.
+    KAN-enhanced FeedForward layer for transformer blocks.
+    Uses Kolmogorov-Arnold Networks for improved non-linear transformations
+    while maintaining compatibility with existing architecture.
     """
-    def __init__(self, dim, hidden_dim, dropout=0.):
+    def __init__(self, dim, hidden_dim, dropout=0., use_kan=True, num_basis=8):
+        """
+        Initializes the FeedForward layer.
+        
+        Args:
+            dim (int): Input/output dimension.
+            hidden_dim (int): Hidden dimension.
+            dropout (float): Dropout rate.
+            use_kan (bool): Whether to use KAN layers or standard MLP.
+            num_basis (int): Number of basis functions for KAN (if use_kan=True).
+        """
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(dim, hidden_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, dim),
-            nn.Dropout(dropout)
-        )
+        self.use_kan = use_kan
+        
+        if use_kan:
+            self.net = KANFeedForward(dim, hidden_dim, dropout=dropout, num_basis=num_basis)
+        else:
+            # Fallback to standard MLP
+            self.net = nn.Sequential(
+                nn.Linear(dim, hidden_dim),
+                nn.GELU(),
+                nn.Dropout(dropout),
+                nn.Linear(hidden_dim, dim),
+                nn.Dropout(dropout)
+            )
     
     def forward(self, x):
         return self.net(x)
@@ -308,9 +718,12 @@ class FeedForward(nn.Module):
 class DS_MSA(nn.Module):
     """
     Deterministic Spatial Multi-Head Self-Attention block.
-    This block consists of a spatial attention layer followed by a feedforward network.
+    This block consists of a spatial attention layer followed by a KAN-enhanced feedforward network.
+    Enhanced with wind-aware dynamic bias for physically-grounded spatial attention.
     """
-    def __init__(self, dim, depth, heads, mlp_dim, assignment, mask, dropout=0.):
+    def __init__(self, dim, depth, heads, mlp_dim, assignment, mask, dropout=0.,
+                 use_wind_bias=False, wind_speed_idx=12, wind_direction_idx=13,
+                 n_rings=3, radii=[50, 200, 500], use_kan=True, num_basis=8):
         """
         Initializes the DS_MSA block.
 
@@ -322,23 +735,43 @@ class DS_MSA(nn.Module):
             assignment (torch.Tensor): Assignment matrix for sectors.
             mask (torch.Tensor): Mask for attention.
             dropout (float): Dropout rate.
+            use_wind_bias (bool): Whether to use wind-aware dynamic bias.
+            wind_speed_idx (int): Index of wind speed feature.
+            wind_direction_idx (int): Index of wind direction feature.
+            n_rings (int): Number of dartboard rings.
+            radii (list): Radii of dartboard rings.
+            use_kan (bool): Whether to use KAN in feedforward layers.
+            num_basis (int): Number of basis functions for KAN.
         """
         super().__init__()
+        self.use_wind_bias = use_wind_bias
+        self.wind_speed_idx = wind_speed_idx
+        self.wind_direction_idx = wind_direction_idx
+        
         self.layers = nn.ModuleList([])
         for i in range(depth):
             self.layers.append(nn.ModuleList([
                 SpatialAttention(dim, heads=heads, dropout=dropout,
                                assignment=assignment, mask=mask,
-                               num_sectors=assignment.shape[-1]),
-                PreNorm(dim, FeedForward(dim, mlp_dim, dropout=dropout))
+                               num_sectors=assignment.shape[-1],
+                               use_wind_bias=use_wind_bias,
+                               wind_speed_idx=wind_speed_idx,
+                               wind_direction_idx=wind_direction_idx,
+                               n_rings=n_rings,
+                               radii=radii,
+                               num_wind_sectors=8),
+                PreNorm(dim, FeedForward(dim, mlp_dim, dropout=dropout, use_kan=use_kan, num_basis=num_basis))
             ]))
 
-    def forward(self, x):
+    def forward(self, x, wind_speed=None, wind_direction=None, scalers=None):
         """
         Forward pass for the DS_MSA block.
 
         Args:
             x (torch.Tensor): Input tensor. Shape: (batch_size, channels, num_nodes, seq_len)
+            wind_speed (torch.Tensor, optional): Wind speed values. Shape: (batch_size, seq_len, num_nodes) or (batch_size, num_nodes)
+            wind_direction (torch.Tensor, optional): Wind direction values. Shape: (batch_size, seq_len, num_nodes) or (batch_size, num_nodes)
+            scalers (dict, optional): Dictionary containing scalers to inverse-transform wind features.
 
         Returns:
             torch.Tensor: Output tensor with spatially attended features.
@@ -347,7 +780,7 @@ class DS_MSA(nn.Module):
         b, c, n, t = x.shape
         x = x.permute(0, 3, 2, 1).reshape(b*t, n, c)
         for attn, ff in self.layers:
-            x = attn(x) + x
+            x = attn(x, wind_speed, wind_direction, scalers) + x
             x = ff(x) + x
         x = x.reshape(b, t, n, c).permute(0, 3, 2, 1)
         return x
@@ -356,9 +789,10 @@ class DS_MSA(nn.Module):
 class CT_MSA(nn.Module):
     """
     Causal Temporal Multi-Head Self-Attention block.
-    This block consists of a temporal attention layer followed by a feedforward network.
+    This block consists of a temporal attention layer followed by a KAN-enhanced feedforward network.
     """
-    def __init__(self, dim, depth, heads, window_size, mlp_dim, num_time, dropout=0., device=None):
+    def __init__(self, dim, depth, heads, window_size, mlp_dim, num_time, dropout=0., device=None, 
+                 use_kan=True, num_basis=8):
         """
         Initializes the CT_MSA block.
 
@@ -371,6 +805,8 @@ class CT_MSA(nn.Module):
             num_time (int): Number of time steps for positional embedding.
             dropout (float): Dropout rate.
             device (torch.device): Device for mask tensor.
+            use_kan (bool): Whether to use KAN in feedforward layers.
+            num_basis (int): Number of basis functions for KAN.
         """
         super().__init__()
         self.pos_embedding = nn.Parameter(torch.randn(1, num_time, dim))
@@ -379,7 +815,7 @@ class CT_MSA(nn.Module):
             self.layers.append(nn.ModuleList([
                 TemporalAttention(dim=dim, heads=heads, window_size=window_size,
                                 dropout=dropout, device=device),
-                PreNorm(dim, FeedForward(dim, mlp_dim, dropout=dropout))
+                PreNorm(dim, FeedForward(dim, mlp_dim, dropout=dropout, use_kan=use_kan, num_basis=num_basis))
             ]))
 
     def forward(self, x):
@@ -407,6 +843,7 @@ class AirFormer(nn.Module):
     """
     The main AirFormer model for air quality forecasting.
     It combines spatial, temporal, and stochastic modules to capture complex spatiotemporal dependencies and uncertainties.
+    Enhanced with wind-aware dynamic attention bias for improved pollution transport modeling.
     """
     def __init__(self, 
                  # Data
@@ -420,6 +857,11 @@ class AirFormer(nn.Module):
                  dartboard_path=None, dartboard=0,
                  # Local windows for CT-MSA
                  local_windows=None,
+                 # Wind-aware bias
+                 use_wind_bias=False, wind_speed_idx=12, wind_direction_idx=13,
+                 n_wind_rings=3, wind_radii=[50, 200, 500],
+                 # KAN-based enhancements
+                 use_kan=True, kan_basis=8,
                  # Other
                  device=None):
         """
@@ -442,6 +884,13 @@ class AirFormer(nn.Module):
             dartboard_path (str, optional): Path to the dartboard partition files.
             dartboard (int): Type of dartboard partition to use.
             local_windows (list, optional): List of local window sizes for CT-MSA in each block.
+            use_wind_bias (bool): Whether to use wind-aware dynamic attention bias.
+            wind_speed_idx (int): Feature index for wind speed.
+            wind_direction_idx (int): Feature index for wind direction.
+            n_wind_rings (int): Number of dartboard rings for wind bias.
+            wind_radii (list): Radii for dartboard rings in wind bias.
+            use_kan (bool): Whether to use Kolmogorov-Arnold Networks in feedforward and stochastic layers.
+            kan_basis (int): Number of basis functions for KAN layers.
             device (torch.device): The device to run the model on.
         """
         super().__init__()
@@ -456,6 +905,11 @@ class AirFormer(nn.Module):
         self.stochastic_flag = stochastic_flag
         self.device = device
         self.alpha = 10  # Coefficient for the KL divergence loss.
+        self.use_wind_bias = use_wind_bias
+        self.wind_speed_idx = wind_speed_idx
+        self.wind_direction_idx = wind_direction_idx
+        self.use_kan = use_kan
+        self.kan_basis = kan_basis
         
         # Load dartboard partitioning for spatial attention
         dartboard_map = {0: '50-200', 1: '50-200-500', 2: '50'}
@@ -480,25 +934,34 @@ class AirFormer(nn.Module):
             else:
                 window_size = seq_len // 2 ** (blocks - b - 1)
             
-            # Temporal attention module
+            # Temporal attention module with KAN-enhanced feedforward
             self.t_modules.append(CT_MSA(hidden_channels, depth=1, heads=num_heads,
                                         window_size=window_size, 
                                         mlp_dim=hidden_channels*mlp_expansion,
-                                        num_time=seq_len, dropout=dropout, device=device))
+                                        num_time=seq_len, dropout=dropout, device=device,
+                                        use_kan=use_kan, num_basis=kan_basis))
             
-            # Spatial attention module
+            # Spatial attention module with optional wind-aware bias and KAN-enhanced feedforward
             if spatial_flag:
                 self.s_modules.append(DS_MSA(hidden_channels, depth=1, heads=num_heads,
                                             mlp_dim=hidden_channels*mlp_expansion,
                                             assignment=self.assignment, mask=self.mask,
-                                            dropout=dropout))
+                                            dropout=dropout,
+                                            use_wind_bias=use_wind_bias,
+                                            wind_speed_idx=wind_speed_idx,
+                                            wind_direction_idx=wind_direction_idx,
+                                            n_rings=n_wind_rings,
+                                            radii=wind_radii,
+                                            use_kan=use_kan, num_basis=kan_basis))
             
             self.bn.append(nn.BatchNorm2d(hidden_channels))
         
-        # Stochastic models for capturing uncertainty
+        # Stochastic models for capturing uncertainty with KAN-enhanced layers
         if stochastic_flag:
-            self.generative_model = StochasticModel(hidden_channels, hidden_channels, blocks)
-            self.inference_model = StochasticModel(hidden_channels, hidden_channels, blocks)
+            self.generative_model = StochasticModel(hidden_channels, hidden_channels, blocks, 
+                                                   use_kan=use_kan, num_basis=kan_basis)
+            self.inference_model = StochasticModel(hidden_channels, hidden_channels, blocks,
+                                                  use_kan=use_kan, num_basis=kan_basis)
             self.reconstruction_model = nn.Sequential(
                 nn.Conv2d(hidden_channels*blocks, end_channels, kernel_size=(1, 1)),
                 nn.ReLU(inplace=True),
@@ -510,13 +973,16 @@ class AirFormer(nn.Module):
         self.end_conv_1 = nn.Conv2d(in_channels, end_channels, kernel_size=(1, 1))
         self.end_conv_2 = nn.Conv2d(end_channels, horizon*output_dim, kernel_size=(1, 1))
 
-    def forward(self, x, supports=None):
+    def forward(self, x, supports=None, wind_data=None, scalers=None):
         """
         Forward pass for the AirFormer model.
 
         Args:
             x (torch.Tensor): Input tensor. Shape: (batch_size, seq_len, num_nodes, input_dim)
             supports: Not used in this model, but kept for compatibility with other frameworks.
+            wind_data (dict, optional): Dictionary containing wind speed and direction.
+                                        Keys: 'wind_speed', 'wind_direction'
+            scalers (dict, optional): Dictionary containing scalers for inverse-transforming wind features.
 
         Returns:
             If stochastic_flag is True:
@@ -534,11 +1000,19 @@ class AirFormer(nn.Module):
         x = x.permute(0, 3, 2, 1)  # [b, c, n, t]
         x = self.start_conv(x)
         
+        # Extract wind features if available
+        wind_speed = None
+        wind_direction = None
+        if self.use_wind_bias and wind_data is not None:
+            wind_speed = wind_data.get('wind_speed')
+            wind_direction = wind_data.get('wind_direction')
+        
         # Encoder
         d = []
         for i in range(self.blocks):
             if self.spatial_flag:
-                x = self.s_modules[i](x)
+                # Pass wind data to spatial attention if available
+                x = self.s_modules[i](x, wind_speed, wind_direction, scalers)
             x = self.t_modules[i](x)
             x = self.bn[i](x)
             d.append(x)

@@ -21,12 +21,12 @@ def get_config():
         "use_amp": True,               # Use automatic mixed precision
         "pin_memory": True,            # Pin memory for DataLoader
         "num_workers": 0,              # Number of DataLoader workers
-        "seq_len": 24,                 # Input sequence length (timesteps)
-        "horizon": 24,                 # Forecast horizon (timesteps)
-        "input_dim": 15,               # Number of input features
+        "seq_len": 24,                # Input sequence length (7 days × 24 hours at 3-hourly) 
+        "horizon": 24,                 # Forecast horizon (3 days at 3-hourly = 24 timesteps)
+        "input_dim": 21,               # Number of input features (before cyclic: 15 core + 6 cyclic)
         "use_spatial": True,           # Enable spatial attention (DS-MSA)
         "use_stochastic": True,        # Enable stochastic latent variables
-        "dartboard": 1,                # Dartboard partition type
+        "dartboard": 1,                # Dartboard partition type (50-200-500 km rings)
         "local_windows": [3, 6, 12, 24], # Local window sizes for CT-MSA
         "weight_decay": 5e-6,          # Weight decay for optimizer
         "grad_clip": 5.0,              # Gradient clipping value
@@ -36,5 +36,12 @@ def get_config():
         "data_path": "../DataPreparation/Processing/Dataset/INDIAN_AIR",
         "dartboard_path": "../DataPreparation/Processing/Dataset/INDIAN_AIR/local_partition/50-200-500",
         "log_dir": "./logs",
+        "wind_speed_idx": 12,          # Feature index for wind speed (m/s) - 0-indexed from features
+        "wind_direction_idx": 13,      # Feature index for wind direction (degrees) - 0-indexed from features
+        "n_sectors": 8,                # Number of dartboard sectors
+        "radii": [50, 200, 500],       # Dartboard ring radii in km
+        "use_wind_bias": True,         # Enable wind-aware dynamic attention bias
+        "use_kan": True,               # Enable Kolmogorov-Arnold Networks in feedforward layers
+        "kan_basis": 8,                # Number of basis functions for KAN layers
     }
     return config

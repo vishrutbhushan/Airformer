@@ -83,6 +83,11 @@ def main():
         dartboard=config['dartboard'],     # Precomputed spatial assignment matrix
         dartboard_path=config['dartboard_path'], # Path to dartboard file
         local_windows=config.get('local_windows', None), # Local window config (optional)
+        use_wind_bias=config.get('use_wind_bias', False), # Use wind-aware dynamic bias
+        wind_speed_idx=config.get('wind_speed_idx', 12), # Wind speed feature index
+        wind_direction_idx=config.get('wind_direction_idx', 13), # Wind direction feature index
+        n_wind_rings=len(config.get('radii', [50, 200, 500])), # Number of dartboard rings
+        wind_radii=config.get('radii', [50, 200, 500]), # Dartboard ring radii
         device=device                      # Device to run model (cpu/cuda)
     ).to(device)                          # Move model to device (GPU/CPU)
     

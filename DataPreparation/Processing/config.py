@@ -1,15 +1,21 @@
 import logging
 
 # Time range for data processing
-START_DATE = '2019-03-31'
+START_DATE = '2021-03-31'
 END_DATE = '2023-03-31'
 
-# Core features to process
-CORE_FEATURES = [
+# Base weather/pollution features to process (15 features from raw data)
+BASE_FEATURES = [
     'PM2.5 (µg/m³)', 'PM10 (µg/m³)', 'Nitric Oxide (µg/m³)', 'Nitrogen Dioxide (µg/m³)', 'Nitrogen Oxides (ppb)',
     'Ammonia (µg/m³)', 'Sulphur Dioxide (µg/m³)', 'Carbon Monoxide (mg/m³)', 'Ozone (µg/m³)', 'Benzene (µg/m³)',
     'Temperature (°C)', 'Relative Humidity (%)', 'Wind Speed (m/s)', 'Wind Direction (°)', 'Rainfall (mm)'
 ]
+
+# Cyclic temporal features added during preprocessing (6 features)
+CYCLIC_FEATURES = ['hour_sin', 'hour_cos', 'day_of_week_sin', 'day_of_week_cos', 'month_sin', 'month_cos']
+
+# All core features: BASE + CYCLIC (21 total)
+CORE_FEATURES = BASE_FEATURES + CYCLIC_FEATURES
 
 # Physical limits
 LIMITS = {
@@ -49,11 +55,18 @@ DROP_COLS = [
 # Configure logging
 LOG_FILE = 'log.txt'
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s - %(message)s',
     filename=LOG_FILE,
-    filemode='w',
+    filemode='a',  # Append mode to keep all logs
     force=True
 )
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
+
+# Add stream handler to see logs in terminal too
+handler = logging.StreamHandler()
+handler.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)

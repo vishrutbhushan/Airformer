@@ -35,6 +35,25 @@ def get_dataloader(datapath, batch_size, num_workers=2, pin_memory=False):
     )
     print(f"PM2.5 Scaler - Mean: {pm25_scaler.mean:.2f}, Std: {pm25_scaler.std:.2f}")
     
+    # Extract scalers for other features (wind speed, wind direction, etc.)
+    # original_scalers is a list of StandardScaler objects, one for each feature
+    scalers_dict = {}
+    if len(original_scalers) > 12:
+        # Index 12 is wind speed
+        scalers_dict['wind_speed_scaler'] = StandardScaler(
+            mean=original_scalers[12].mean_[0],
+            std=original_scalers[12].scale_[0]
+        )
+        print(f"Wind Speed Scaler - Mean: {scalers_dict['wind_speed_scaler'].mean:.4f}, Std: {scalers_dict['wind_speed_scaler'].std:.4f}")
+    
+    if len(original_scalers) > 13:
+        # Index 13 is wind direction
+        scalers_dict['wind_direction_scaler'] = StandardScaler(
+            mean=original_scalers[13].mean_[0],
+            std=original_scalers[13].scale_[0]
+        )
+        print(f"Wind Direction Scaler - Mean: {scalers_dict['wind_direction_scaler'].mean:.4f}, Std: {scalers_dict['wind_direction_scaler'].std:.4f}")
+    
     datasets = {}
     for category in ['train', 'val', 'test']:
         x = torch.Tensor(data['x_' + category])
@@ -70,6 +89,7 @@ def get_dataloader(datapath, batch_size, num_workers=2, pin_memory=False):
             persistent_workers=num_workers > 0
         ),
         'scaler': pm25_scaler,
+        'scalers': scalers_dict,  # All scalers for wind and other features
     }
     
     print(f"Train: {len(datasets['train'])}, Val: {len(datasets['val'])}, Test: {len(datasets['test'])}")

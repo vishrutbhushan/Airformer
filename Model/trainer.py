@@ -20,6 +20,7 @@ class Trainer:
         self.val_loader = data['val_loader']
         self.test_loader = data['test_loader']
         self.scaler = data['scaler']
+        self.scalers = data.get('scalers', {})  # All scalers including wind features
         
         self.optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
         
@@ -51,6 +52,36 @@ class Trainer:
         # Log training data information
         logger.info(f"Training data: {len(self.train_loader)} batches × {self.train_loader.batch_size} batch_size = {len(self.train_loader) * self.train_loader.batch_size} total sequences")
         logger.info(f"Validation data: {len(self.val_loader)} batches × {self.val_loader.batch_size} batch_size = {len(self.val_loader) * self.val_loader.batch_size} total sequences")
+        
+        # Log wind bias availability
+        if self.model.use_wind_bias:
+            if self.scalers:
+                logger.info("Wind-aware attention bias ENABLED with available scalers")
+            else:
+                logger.warning("Wind-aware attention bias enabled but NO scalers available - wind bias will not be applied")
+        
+    def extract_wind_data(self, x):
+        """
+        Extracts wind speed and wind direction from input tensor x.
+        
+        Args:
+            x (torch.Tensor): Input tensor of shape (batch_size, seq_len, num_nodes, input_dim)
+        
+        Returns:
+            dict: Dictionary with 'wind_speed' and 'wind_direction' tensors
+        """
+        wind_data = {}
+        try:
+            # Extract wind speed (index 12) and wind direction (index 13)
+            # x shape: (batch_size, seq_len, num_nodes, input_dim)
+            wind_speed = x[:, :, :, self.model.wind_speed_idx]  # (batch_size, seq_len, num_nodes)
+            wind_direction = x[:, :, :, self.model.wind_direction_idx]  # (batch_size, seq_len, num_nodes)
+            wind_data['wind_speed'] = wind_speed
+            wind_data['wind_direction'] = wind_direction
+        except Exception as e:
+            logger.warning(f"Failed to extract wind data: {e}")
+        
+        return wind_data if wind_data else None
 
         
     def train_epoch(self):
@@ -60,15 +91,20 @@ class Trainer:
         for batch_idx, (x, y) in enumerate(self.train_loader):
             x, y = x.to(self.device), y.to(self.device)
             
+            # Extract wind data if model uses wind bias
+            wind_data = None
+            if self.model.use_wind_bias:
+                wind_data = self.extract_wind_data(x)
+            
             if self.use_amp:
                 with torch.amp.autocast('cuda'):
                     if self.model.stochastic_flag:
-                        y_pred, x_rec, kl_loss = self.model(x)
+                        y_pred, x_rec, kl_loss = self.model(x, wind_data=wind_data, scalers=self.scalers)
                         pred_loss = nn.functional.l1_loss(y_pred, y)
                         rec_loss = nn.functional.l1_loss(x_rec, x)
                         loss = pred_loss + rec_loss + kl_loss
                     else:
-                        y_pred = self.model(x)
+                        y_pred = self.model(x, wind_data=wind_data, scalers=self.scalers)
                         loss = nn.functional.l1_loss(y_pred, y)
                     
                     loss = loss / self.accumulation_steps
@@ -83,12 +119,12 @@ class Trainer:
                     self.optimizer.zero_grad()
             else:
                 if self.model.stochastic_flag:
-                    y_pred, x_rec, kl_loss = self.model(x)
+                    y_pred, x_rec, kl_loss = self.model(x, wind_data=wind_data, scalers=self.scalers)
                     pred_loss = nn.functional.l1_loss(y_pred, y)
-                    rec_loss = nn.functional.l1_loss(x_rec, x)  # FIX: should be x not y
+                    rec_loss = nn.functional.l1_loss(x_rec, x)
                     loss = pred_loss + rec_loss + kl_loss
                 else:
-                    y_pred = self.model(x)
+                    y_pred = self.model(x, wind_data=wind_data, scalers=self.scalers)
                     loss = nn.functional.l1_loss(y_pred, y)
                 
                 loss = loss / self.accumulation_steps
@@ -111,18 +147,23 @@ class Trainer:
             for x, y in self.val_loader:
                 x, y = x.to(self.device), y.to(self.device)
                 
+                # Extract wind data if model uses wind bias
+                wind_data = None
+                if self.model.use_wind_bias:
+                    wind_data = self.extract_wind_data(x)
+                
                 if self.use_amp:
                     with torch.amp.autocast('cuda'):
                         if self.model.stochastic_flag:
-                            y_pred, _, _ = self.model(x)
+                            y_pred, _, _ = self.model(x, wind_data=wind_data, scalers=self.scalers)
                         else:
-                            y_pred = self.model(x)
+                            y_pred = self.model(x, wind_data=wind_data, scalers=self.scalers)
                         loss = nn.functional.l1_loss(y_pred, y)
                 else:
                     if self.model.stochastic_flag:
-                        y_pred, _, _ = self.model(x)
+                        y_pred, _, _ = self.model(x, wind_data=wind_data, scalers=self.scalers)
                     else:
-                        y_pred = self.model(x)
+                        y_pred = self.model(x, wind_data=wind_data, scalers=self.scalers)
                     loss = nn.functional.l1_loss(y_pred, y)
                 
                 total_loss += loss.item()
@@ -178,17 +219,22 @@ class Trainer:
             for x, y in self.test_loader:
                 x, y = x.to(self.device), y.to(self.device)
                 
+                # Extract wind data if model uses wind bias
+                wind_data = None
+                if self.model.use_wind_bias:
+                    wind_data = self.extract_wind_data(x)
+                
                 if self.use_amp:
                     with torch.amp.autocast('cuda'):
                         if self.model.stochastic_flag:
-                            y_pred, _, _ = self.model(x)
+                            y_pred, _, _ = self.model(x, wind_data=wind_data, scalers=self.scalers)
                         else:
-                            y_pred = self.model(x)
+                            y_pred = self.model(x, wind_data=wind_data, scalers=self.scalers)
                 else:
                     if self.model.stochastic_flag:
-                        y_pred, _, _ = self.model(x)
+                        y_pred, _, _ = self.model(x, wind_data=wind_data, scalers=self.scalers)
                     else:
-                        y_pred = self.model(x)
+                        y_pred = self.model(x, wind_data=wind_data, scalers=self.scalers)
                 
                 predictions.append(y_pred.cpu().numpy())
                 targets.append(y.cpu().numpy())
