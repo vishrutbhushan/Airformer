@@ -88,13 +88,29 @@ class Trainer:
         self.model.train()
         total_loss = 0
         
-        for batch_idx, (x, y) in enumerate(self.train_loader):
+        for batch_idx, batch in enumerate(self.train_loader):
+            # Batch format from collate_with_wind_bias: ((x, y), wind_bias)
+            (x, y), precomputed_wind_bias = batch
+            
             x, y = x.to(self.device), y.to(self.device)
+            if precomputed_wind_bias is not None:
+                precomputed_wind_bias = precomputed_wind_bias.to(self.device)
             
             # Extract wind data if model uses wind bias
             wind_data = None
             if self.model.use_wind_bias:
-                wind_data = self.extract_wind_data(x)
+                # Prefer precomputed wind bias if available
+                if precomputed_wind_bias is not None:
+                    # Package both wind data and precomputed bias
+                    wind_speed_data = self.extract_wind_data(x)
+                    wind_data = {
+                        'wind_speed': wind_speed_data.get('wind_speed') if wind_speed_data else None,
+                        'wind_direction': wind_speed_data.get('wind_direction') if wind_speed_data else None,
+                        'wind_bias_precomputed': precomputed_wind_bias
+                    }
+                else:
+                    # Fall back to extracting wind speed/direction from input
+                    wind_data = self.extract_wind_data(x)
             
             if self.use_amp:
                 with torch.amp.autocast('cuda'):
@@ -144,13 +160,27 @@ class Trainer:
         total_loss = 0
         
         with torch.no_grad():
-            for x, y in self.val_loader:
+            for batch in self.val_loader:
+                # Batch format from collate_with_wind_bias: ((x, y), wind_bias)
+                (x, y), precomputed_wind_bias = batch
+                
                 x, y = x.to(self.device), y.to(self.device)
+                if precomputed_wind_bias is not None:
+                    precomputed_wind_bias = precomputed_wind_bias.to(self.device)
                 
                 # Extract wind data if model uses wind bias
                 wind_data = None
                 if self.model.use_wind_bias:
-                    wind_data = self.extract_wind_data(x)
+                    # Prefer precomputed wind bias if available
+                    if precomputed_wind_bias is not None:
+                        wind_speed_data = self.extract_wind_data(x)
+                        wind_data = {
+                            'wind_speed': wind_speed_data.get('wind_speed') if wind_speed_data else None,
+                            'wind_direction': wind_speed_data.get('wind_direction') if wind_speed_data else None,
+                            'wind_bias_precomputed': precomputed_wind_bias
+                        }
+                    else:
+                        wind_data = self.extract_wind_data(x)
                 
                 if self.use_amp:
                     with torch.amp.autocast('cuda'):
@@ -216,13 +246,28 @@ class Trainer:
         targets = []
         
         with torch.no_grad():
-            for x, y in self.test_loader:
+            for batch in self.test_loader:
+                # Batch format from collate_with_wind_bias: ((x, y), wind_bias)
+                (x, y), precomputed_wind_bias = batch
                 x, y = x.to(self.device), y.to(self.device)
+                if precomputed_wind_bias is not None:
+                    precomputed_wind_bias = precomputed_wind_bias.to(self.device)
                 
                 # Extract wind data if model uses wind bias
                 wind_data = None
                 if self.model.use_wind_bias:
-                    wind_data = self.extract_wind_data(x)
+                    # Prefer precomputed wind bias if available
+                    if precomputed_wind_bias is not None:
+                        # Package both wind data and precomputed bias
+                        wind_speed_data = self.extract_wind_data(x)
+                        wind_data = {
+                            'wind_speed': wind_speed_data.get('wind_speed') if wind_speed_data else None,
+                            'wind_direction': wind_speed_data.get('wind_direction') if wind_speed_data else None,
+                            'wind_bias_precomputed': precomputed_wind_bias
+                        }
+                    else:
+                        # Fall back to extracting wind speed/direction from input
+                        wind_data = self.extract_wind_data(x)
                 
                 if self.use_amp:
                     with torch.amp.autocast('cuda'):

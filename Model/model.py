@@ -79,44 +79,6 @@ class KANLayer(nn.Module):
         return self.linear(x) + y
 
 
-class KANFeedForward(nn.Module):
-    """
-    KAN-based FeedForward layer.
-    Replaces traditional MLP with KAN layers for more expressive non-linear transformations
-    while maintaining computational efficiency.
-    """
-    def __init__(self, dim, hidden_dim, dropout=0., num_basis=8):
-        """
-        Initializes the KAN-based FeedForward layer.
-        
-        Args:
-            dim (int): Input/output dimension.
-            hidden_dim (int): Hidden dimension.
-            dropout (float): Dropout rate.
-            num_basis (int): Number of basis functions for KAN layers.
-        """
-        super().__init__()
-        self.kan_in = KANLayer(dim, hidden_dim, num_basis=num_basis)
-        self.kan_out = KANLayer(hidden_dim, dim, num_basis=num_basis)
-        self.dropout = nn.Dropout(dropout)
-        self.activation = nn.GELU()
-
-    def forward(self, x):
-        """
-        Forward pass through KAN layers with activation and dropout.
-        
-        Args:
-            x (torch.Tensor): Input tensor
-            
-        Returns:
-            torch.Tensor: Transformed output tensor
-        """
-        x = self.kan_in(x)
-        x = self.activation(x)
-        x = self.dropout(x)
-        x = self.kan_out(x)
-        x = self.dropout(x)
-        return x
 
 
 class WindAwareBias(nn.Module):
@@ -549,39 +511,58 @@ class SpatialAttention(nn.Module):
         
         # Add wind-aware dynamic bias if available
         if self.use_wind_bias and wind_speed is not None and wind_direction is not None:
-            # Inverse-scale wind features to physical units
-            if scalers is not None and 'wind_speed_scaler' in scalers and 'wind_direction_scaler' in scalers:
-                ws_scaler = scalers['wind_speed_scaler']
-                wd_scaler = scalers['wind_direction_scaler']
-                
-                # Reshape wind data if needed: (B, T, N) -> (B*T, N)
-                orig_ws_shape = wind_speed.shape
-                orig_wd_shape = wind_direction.shape
-                
-                if wind_speed.dim() == 3:
-                    B_wind, T_wind, N_wind = wind_speed.shape
-                    wind_speed = wind_speed.reshape(B_wind * T_wind, N_wind)
-                    wind_direction = wind_direction.reshape(B_wind * T_wind, N_wind)
-                
-                # Inverse transform: bring from [-1, 1] scale back to physical units
-                wind_speed_physical = ws_scaler.inverse_transform(wind_speed.cpu().numpy())
-                wind_direction_physical = wd_scaler.inverse_transform(wind_direction.cpu().numpy())
-                
-                wind_speed = torch.from_numpy(wind_speed_physical).float().to(attn.device)
-                wind_direction = torch.from_numpy(wind_direction_physical).float().to(attn.device)
+            # Check if wind_speed is actually a dict containing wind_bias_precomputed
+            wind_bias_precomputed = None
+            if isinstance(wind_speed, dict):
+                wind_bias_precomputed = wind_speed.get('wind_bias_precomputed', None)
+                wind_speed = wind_speed.get('wind_speed', None)
             
-            # Ensure wind data is on the same device
-            wind_speed = wind_speed.to(attn.device)
-            wind_direction = wind_direction.to(attn.device)
+            if isinstance(wind_direction, dict):
+                wind_direction = wind_direction.get('wind_direction', None)
             
-            # Compute wind-aware bias
-            wind_bias = self.wind_bias(wind_speed, wind_direction, self.assignment, self.mask)
-            # wind_bias shape: (B*T, N, 1, n_regions) - already has one unsqueeze from compute function
-            wind_bias = wind_bias.unsqueeze(2)  # (B*T, N, 1, 1, n_regions)
-            wind_bias = wind_bias.expand(-1, -1, self.num_heads, -1, -1)  # (B*T, N, heads, 1, n_regions)
+            if wind_bias_precomputed is not None:
+                # Use precomputed wind bias directly (FAST PATH - no computation needed)
+                # wind_bias_precomputed shape: (batch_size, seq_len, num_nodes, n_regions)
+                # Reshape to (B, N, 1, 1, num_regions) where B = batch_size * seq_len
+                wind_bias = wind_bias_precomputed.reshape(B, N, 1, 1, -1).float().to(attn.device)
+                
+                # Expand to match attention head dimension
+                wind_bias = wind_bias.expand(-1, -1, self.num_heads, -1, -1)  # (B, N, heads, 1, num_regions)
+                
+                # Add to attention (broadcasting will align dimensions)
+                attn = attn + wind_bias
             
-            # Add wind bias to attention scores
-            attn = attn + wind_bias
+            elif wind_speed is not None and wind_direction is not None:
+                # Compute wind bias dynamically (SLOW PATH - original behavior)
+                # Inverse-scale wind features to physical units
+                if scalers is not None and 'wind_speed_scaler' in scalers and 'wind_direction_scaler' in scalers:
+                    ws_scaler = scalers['wind_speed_scaler']
+                    wd_scaler = scalers['wind_direction_scaler']
+                    
+                    # Reshape wind data if needed: (B, T, N) -> (B*T, N)
+                    if wind_speed.dim() == 3:
+                        B_wind, T_wind, N_wind = wind_speed.shape
+                        wind_speed = wind_speed.reshape(B_wind * T_wind, N_wind)
+                        wind_direction = wind_direction.reshape(B_wind * T_wind, N_wind)
+                    
+                    # Inverse transform: bring from [-1, 1] scale back to physical units
+                    wind_speed_physical = ws_scaler.inverse_transform(wind_speed.cpu().numpy())
+                    wind_direction_physical = wd_scaler.inverse_transform(wind_direction.cpu().numpy())
+                    
+                    wind_speed = torch.from_numpy(wind_speed_physical).float().to(attn.device)
+                    wind_direction = torch.from_numpy(wind_direction_physical).float().to(attn.device)
+                
+                # Ensure wind data is on the same device
+                wind_speed = wind_speed.to(attn.device)
+                wind_direction = wind_direction.to(attn.device)
+                
+                # Compute wind-aware bias
+                wind_bias = self.wind_bias(wind_speed, wind_direction, self.assignment, self.mask)
+                # wind_bias shape: (B*T, N, 1, n_regions) from compute_wind_aware_bias
+                wind_bias = wind_bias.expand(-1, -1, self.num_heads, -1, -1)  # (B*T, N, heads, 1, n_regions)
+                
+                # Add wind bias to attention scores
+                attn = attn + wind_bias
         
         mask = self.mask.reshape(1, N, 1, 1, self.num_sector)
         attn = attn.masked_fill_(mask, float("-inf")).reshape(B * N, self.num_heads, 1, self.num_sector).softmax(dim=-1)
@@ -682,11 +663,11 @@ class PreNorm(nn.Module):
 
 class FeedForward(nn.Module):
     """
-    KAN-enhanced FeedForward layer for transformer blocks.
-    Uses Kolmogorov-Arnold Networks for improved non-linear transformations
-    while maintaining compatibility with existing architecture.
+    Standard FeedForward layer for transformer blocks.
+    Uses simple 2-layer MLP with GELU activation.
+    KAN is not used here as it adds unnecessary complexity to already-simple layers.
     """
-    def __init__(self, dim, hidden_dim, dropout=0., use_kan=True, num_basis=8):
+    def __init__(self, dim, hidden_dim, dropout=0., use_kan=False, num_basis=8):
         """
         Initializes the FeedForward layer.
         
@@ -694,23 +675,18 @@ class FeedForward(nn.Module):
             dim (int): Input/output dimension.
             hidden_dim (int): Hidden dimension.
             dropout (float): Dropout rate.
-            use_kan (bool): Whether to use KAN layers or standard MLP.
-            num_basis (int): Number of basis functions for KAN (if use_kan=True).
+            use_kan (bool): Unused - kept for compatibility. FF always uses standard MLP.
+            num_basis (int): Unused - kept for compatibility.
         """
         super().__init__()
-        self.use_kan = use_kan
-        
-        if use_kan:
-            self.net = KANFeedForward(dim, hidden_dim, dropout=dropout, num_basis=num_basis)
-        else:
-            # Fallback to standard MLP
-            self.net = nn.Sequential(
-                nn.Linear(dim, hidden_dim),
-                nn.GELU(),
-                nn.Dropout(dropout),
-                nn.Linear(hidden_dim, dim),
-                nn.Dropout(dropout)
-            )
+        # Standard MLP: simple, efficient, proven effective in transformers
+        self.net = nn.Sequential(
+            nn.Linear(dim, hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, dim),
+            nn.Dropout(dropout)
+        )
     
     def forward(self, x):
         return self.net(x)
@@ -718,12 +694,12 @@ class FeedForward(nn.Module):
 class DS_MSA(nn.Module):
     """
     Deterministic Spatial Multi-Head Self-Attention block.
-    This block consists of a spatial attention layer followed by a KAN-enhanced feedforward network.
+    This block consists of a spatial attention layer followed by a feedforward network.
     Enhanced with wind-aware dynamic bias for physically-grounded spatial attention.
     """
     def __init__(self, dim, depth, heads, mlp_dim, assignment, mask, dropout=0.,
                  use_wind_bias=False, wind_speed_idx=12, wind_direction_idx=13,
-                 n_rings=3, radii=[50, 200, 500], use_kan=True, num_basis=8):
+                 n_rings=3, radii=[50, 200, 500], use_kan=False, num_basis=8):
         """
         Initializes the DS_MSA block.
 
@@ -740,8 +716,8 @@ class DS_MSA(nn.Module):
             wind_direction_idx (int): Index of wind direction feature.
             n_rings (int): Number of dartboard rings.
             radii (list): Radii of dartboard rings.
-            use_kan (bool): Whether to use KAN in feedforward layers.
-            num_basis (int): Number of basis functions for KAN.
+            use_kan (bool): Unused - kept for compatibility.
+            num_basis (int): Unused - kept for compatibility.
         """
         super().__init__()
         self.use_wind_bias = use_wind_bias
@@ -760,27 +736,54 @@ class DS_MSA(nn.Module):
                                n_rings=n_rings,
                                radii=radii,
                                num_wind_sectors=8),
-                PreNorm(dim, FeedForward(dim, mlp_dim, dropout=dropout, use_kan=use_kan, num_basis=num_basis))
+                PreNorm(dim, FeedForward(dim, mlp_dim, dropout=dropout))
             ]))
 
-    def forward(self, x, wind_speed=None, wind_direction=None, scalers=None):
+    def forward(self, x, wind_speed=None, wind_direction=None, scalers=None, wind_data=None):
         """
         Forward pass for the DS_MSA block.
 
         Args:
             x (torch.Tensor): Input tensor. Shape: (batch_size, channels, num_nodes, seq_len)
-            wind_speed (torch.Tensor, optional): Wind speed values. Shape: (batch_size, seq_len, num_nodes) or (batch_size, num_nodes)
-            wind_direction (torch.Tensor, optional): Wind direction values. Shape: (batch_size, seq_len, num_nodes) or (batch_size, num_nodes)
+            wind_speed (torch.Tensor, optional): DEPRECATED. Use wind_data dict instead.
+            wind_direction (torch.Tensor, optional): DEPRECATED. Use wind_data dict instead.
             scalers (dict, optional): Dictionary containing scalers to inverse-transform wind features.
+            wind_data (dict, optional): Dictionary with 'wind_speed', 'wind_direction', and optionally 'wind_bias_precomputed'
 
         Returns:
             torch.Tensor: Output tensor with spatially attended features.
                           Shape: (batch_size, channels, num_nodes, seq_len)
         """
+        # Handle both old and new API
+        if wind_data is not None:
+            wind_speed = wind_data.get('wind_speed', wind_speed)
+            wind_direction = wind_data.get('wind_direction', wind_direction)
+            wind_bias_precomputed = wind_data.get('wind_bias_precomputed', None)
+        else:
+            wind_bias_precomputed = None
+        
         b, c, n, t = x.shape
         x = x.permute(0, 3, 2, 1).reshape(b*t, n, c)
+        
+        # Reshape wind_bias if present
+        if wind_bias_precomputed is not None:
+            # wind_bias_precomputed shape: (batch, seq_len, num_nodes, num_regions)
+            # Reshape to (batch*seq_len, num_nodes, num_regions) for processing
+            wind_bias_reshaped = wind_bias_precomputed.reshape(b*t, n, -1)
+        else:
+            wind_bias_reshaped = None
+        
         for attn, ff in self.layers:
-            x = attn(x, wind_speed, wind_direction, scalers) + x
+            # If we have precomputed wind bias, pass it packaged in wind_speed dict
+            if wind_bias_reshaped is not None:
+                wind_speed_packaged = {
+                    'wind_speed': wind_speed,
+                    'wind_direction': wind_direction,
+                    'wind_bias_precomputed': wind_bias_reshaped
+                }
+                x = attn(x, wind_speed_packaged, None, scalers) + x
+            else:
+                x = attn(x, wind_speed, wind_direction, scalers) + x
             x = ff(x) + x
         x = x.reshape(b, t, n, c).permute(0, 3, 2, 1)
         return x
@@ -789,10 +792,10 @@ class DS_MSA(nn.Module):
 class CT_MSA(nn.Module):
     """
     Causal Temporal Multi-Head Self-Attention block.
-    This block consists of a temporal attention layer followed by a KAN-enhanced feedforward network.
+    This block consists of a temporal attention layer followed by a feedforward network.
     """
     def __init__(self, dim, depth, heads, window_size, mlp_dim, num_time, dropout=0., device=None, 
-                 use_kan=True, num_basis=8):
+                 use_kan=False, num_basis=8):
         """
         Initializes the CT_MSA block.
 
@@ -805,8 +808,8 @@ class CT_MSA(nn.Module):
             num_time (int): Number of time steps for positional embedding.
             dropout (float): Dropout rate.
             device (torch.device): Device for mask tensor.
-            use_kan (bool): Whether to use KAN in feedforward layers.
-            num_basis (int): Number of basis functions for KAN.
+            use_kan (bool): Unused - kept for compatibility.
+            num_basis (int): Unused - kept for compatibility.
         """
         super().__init__()
         self.pos_embedding = nn.Parameter(torch.randn(1, num_time, dim))
@@ -815,7 +818,7 @@ class CT_MSA(nn.Module):
             self.layers.append(nn.ModuleList([
                 TemporalAttention(dim=dim, heads=heads, window_size=window_size,
                                 dropout=dropout, device=device),
-                PreNorm(dim, FeedForward(dim, mlp_dim, dropout=dropout, use_kan=use_kan, num_basis=num_basis))
+                PreNorm(dim, FeedForward(dim, mlp_dim, dropout=dropout))
             ]))
 
     def forward(self, x):
@@ -861,7 +864,7 @@ class AirFormer(nn.Module):
                  use_wind_bias=False, wind_speed_idx=12, wind_direction_idx=13,
                  n_wind_rings=3, wind_radii=[50, 200, 500],
                  # KAN-based enhancements
-                 use_kan=True, kan_basis=8,
+                 use_kan=False, kan_basis=4,
                  # Other
                  device=None):
         """
@@ -889,8 +892,9 @@ class AirFormer(nn.Module):
             wind_direction_idx (int): Feature index for wind direction.
             n_wind_rings (int): Number of dartboard rings for wind bias.
             wind_radii (list): Radii for dartboard rings in wind bias.
-            use_kan (bool): Whether to use Kolmogorov-Arnold Networks in feedforward and stochastic layers.
-            kan_basis (int): Number of basis functions for KAN layers.
+            use_kan (bool): Whether to use Kolmogorov-Arnold Networks in LatentLayers only.
+                           Not used in feedforward layers (simple MLP is more efficient).
+            kan_basis (int): Number of basis functions for KAN layers (when used).
             device (torch.device): The device to run the model on.
         """
         super().__init__()
@@ -956,7 +960,7 @@ class AirFormer(nn.Module):
             
             self.bn.append(nn.BatchNorm2d(hidden_channels))
         
-        # Stochastic models for capturing uncertainty with KAN-enhanced layers
+        # Stochastic models for capturing uncertainty with optional KAN-enhanced layers
         if stochastic_flag:
             self.generative_model = StochasticModel(hidden_channels, hidden_channels, blocks, 
                                                    use_kan=use_kan, num_basis=kan_basis)
@@ -1000,19 +1004,12 @@ class AirFormer(nn.Module):
         x = x.permute(0, 3, 2, 1)  # [b, c, n, t]
         x = self.start_conv(x)
         
-        # Extract wind features if available
-        wind_speed = None
-        wind_direction = None
-        if self.use_wind_bias and wind_data is not None:
-            wind_speed = wind_data.get('wind_speed')
-            wind_direction = wind_data.get('wind_direction')
-        
         # Encoder
         d = []
         for i in range(self.blocks):
             if self.spatial_flag:
-                # Pass wind data to spatial attention if available
-                x = self.s_modules[i](x, wind_speed, wind_direction, scalers)
+                # Pass entire wind_data dict (may include wind_bias_precomputed)
+                x = self.s_modules[i](x, wind_data=wind_data, scalers=scalers)
             x = self.t_modules[i](x)
             x = self.bn[i](x)
             d.append(x)

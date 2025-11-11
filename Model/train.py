@@ -61,7 +61,9 @@ def main():
     )
     
     # Get actual number of stations from data
-    sample_x = next(iter(data['train_loader']))[0]
+    # collate_with_wind_bias returns ((x, y), wind_bias)
+    batch = next(iter(data['train_loader']))
+    (sample_x, sample_y), sample_wind_bias = batch
     n_stations = sample_x.shape[2]  # Shape: (batch, seq_len, stations, features)
     logger.info(f"Actual stations from data: {n_stations}")
     logger.info(f"Sample input shape: {sample_x.shape}")
@@ -84,10 +86,7 @@ def main():
         dartboard_path=config['dartboard_path'], # Path to dartboard file
         local_windows=config.get('local_windows', None), # Local window config (optional)
         use_wind_bias=config.get('use_wind_bias', False), # Use wind-aware dynamic bias
-        wind_speed_idx=config.get('wind_speed_idx', 12), # Wind speed feature index
-        wind_direction_idx=config.get('wind_direction_idx', 13), # Wind direction feature index
-        n_wind_rings=len(config.get('radii', [50, 200, 500])), # Number of dartboard rings
-        wind_radii=config.get('radii', [50, 200, 500]), # Dartboard ring radii
+        use_kan=config.get('use_kan', False), # Use Kolmogorov-Arnold Networks
         device=device                      # Device to run model (cpu/cuda)
     ).to(device)                          # Move model to device (GPU/CPU)
     

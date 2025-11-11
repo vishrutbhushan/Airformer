@@ -7,10 +7,10 @@ def print_config(config):
         logger.info(f"  {k}: {v}")
 def get_config():
     config = {
-        "batch_size": 16,              # Number of samples per training batch
+        "batch_size": 30,              # Number of samples per training batch
         "output_dim": 1,               # Number of output features (1 PM2.5)
         "grad_accum_steps": 1,         # Gradient accumulation steps
-        "hidden_dim": 32,              # Model hidden dimension size
+        "hidden_dim": 48,              # Model hidden dimension size
         "end_channels_mult": 8,        # Multiplier for end channels
         "num_heads": 2,                # Number of attention heads
         "blocks": 4,                   # Number of transformer blocks
@@ -36,12 +36,7 @@ def get_config():
         "data_path": "../DataPreparation/Processing/Dataset/INDIAN_AIR",
         "dartboard_path": "../DataPreparation/Processing/Dataset/INDIAN_AIR/local_partition/50-200-500",
         "log_dir": "./logs",
-        "wind_speed_idx": 12,          # Feature index for wind speed (m/s) - 0-indexed from features
-        "wind_direction_idx": 13,      # Feature index for wind direction (degrees) - 0-indexed from features
-        "n_sectors": 8,                # Number of dartboard sectors
-        "radii": [50, 200, 500],       # Dartboard ring radii in km
-        "use_wind_bias": True,         # Enable wind-aware dynamic attention bias
-        "use_kan": True,               # Enable Kolmogorov-Arnold Networks in feedforward layers
-        "kan_basis": 8,                # Number of basis functions for KAN layers
+        "use_wind_bias": False,         # Enable wind-aware attention bias
+        "use_kan": False,              # Enable Kolmogorov-Arnold Networks in LatentLayers
     }
     return config
