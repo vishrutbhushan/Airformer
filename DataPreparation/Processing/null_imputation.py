@@ -1,248 +1,199 @@
-"""Kalman filter-based time series imputation with seasonal decomposition."""
+"""Simplified imputation: splines for small gaps, KNN for large/complete gaps."""
 
 import pandas as pd
 import numpy as np
-import logging
 import warnings
 warnings.filterwarnings('ignore')
-from scipy.signal import savgol_filter
+from scipy.interpolate import CubicSpline
+from sklearn.neighbors import NearestNeighbors
 
 from config import logger, CORE_FEATURES, LIMITS
+from cyclic_features import get_cyclic_feature_columns
 
-
-def kalman_filter_imputation(series, seasonal_period=8):
+def spline_imputation(series, max_gap=3):
     """
-    Bidirectional Kalman filter imputation for time series.
-    
-    Two-pass algorithm handles ALL gaps uniformly:
-    - Forward pass: learns from first observation onward
-    - Backward pass: learns from last observation backward
-    - Blends both estimates for optimal fill
-    
-    Works for:
-    - Large gaps at start (no prior data)
-    - Large gaps at end (no future data)
-    - Large gaps in middle
-    - Small gaps anywhere
-    
-    Pure filtering, no backups, no arbitrary rules.
+    Fill gaps of size <= max_gap using cubic spline interpolation.
+    Returns series with small gaps filled, larger gaps still NaN.
     """
     result = series.copy()
     mask = result.notna()
-    n_nulls = result.isna().sum()
     
-    if n_nulls == 0 or mask.sum() < 3:
+    if mask.sum() < 2:
         return result
     
     try:
-        # Extract observed values and their positions
-        observed_indices = np.where(mask.values)[0]
-        observed_vals = result.iloc[observed_indices].values
+        # Get indices and values of non-null points
+        valid_idx = np.where(mask.values)[0]
+        valid_vals = result.iloc[valid_idx].values
         
-        if len(observed_vals) == 0:
-            return result
+        # Create spline from valid points
+        cs = CubicSpline(valid_idx, valid_vals, extrapolate='linear')
         
-        # Estimate initial state from observed data
-        mean_val = np.nanmean(observed_vals)
-        trend_est = 0
-        if len(observed_vals) >= 2:
-            diffs = np.diff(observed_vals)
-            trend_est = np.median(diffs[~np.isnan(diffs)]) if len(diffs) > 0 else 0
-        
-        # Extract seasonal pattern from observed data
-        seasonal_pattern = np.zeros(seasonal_period)
-        seasonal_counts = np.zeros(seasonal_period)
-        for idx, val in zip(observed_indices, observed_vals):
-            if not np.isnan(val):
-                seasonal_idx = idx % seasonal_period
-                seasonal_pattern[seasonal_idx] += val
-                seasonal_counts[seasonal_idx] += 1
-        
-        # Average the seasonal patterns
-        for i in range(seasonal_period):
-            if seasonal_counts[i] > 0:
-                seasonal_pattern[i] /= seasonal_counts[i]
-            else:
-                seasonal_pattern[i] = mean_val
-        
-        # Kalman filter parameters
-        process_variance = np.var(observed_vals) if len(observed_vals) > 1 else 1.0
-        measurement_variance = process_variance * 0.1  # Trust observations more than model
-        
-        # State transition matrix (how state evolves from one step to next)
-        F = np.array([[1, 1], [0, 1]])  # value += trend
-        Q = np.array([[process_variance * 0.1, 0], [0, process_variance * 0.01]])
-        
-        # Adaptive process noise based on gap size (longer gaps → more flexible filter)
-        gap_ratio = np.clip(n_nulls / len(series), 0.5, 3.0)
-        Q = Q * gap_ratio
-        
-        # Measurement matrix (observe only the value, not trend)
-        H = np.array([[1, 0]])
-        R = np.array([[measurement_variance]])
-        
-        # ========== FORWARD PASS ==========
-        forward_estimates = np.full(len(result), np.nan)
-        state = np.array([mean_val, trend_est])
-        state_covariance = np.array([[process_variance, 0], [0, process_variance * 0.01]])
-        
-        for i in range(len(result)):
-            seasonal_component = seasonal_pattern[i % seasonal_period]
-            
-            # Predict step
-            state_pred = F @ state
-            cov_pred = F @ state_covariance @ F.T + Q
-            
-            # Update step
-            if mask.iloc[i]:  # We have an observation
-                obs = result.iloc[i]
-                deseasonalized_obs = obs - seasonal_component
-                innovation = deseasonalized_obs - H @ state_pred
-                innovation_cov = H @ cov_pred @ H.T + R
-                kalman_gain = cov_pred @ H.T @ np.linalg.inv(innovation_cov)
-                
-                state = state_pred + kalman_gain @ np.array([innovation])
-                state_covariance = (np.eye(2) - kalman_gain @ H) @ cov_pred
-            else:
-                # Missing observation, use prediction
-                state = state_pred
-                state_covariance = cov_pred
-            
-            # Store forward estimate
-            forward_estimates[i] = state[0] + seasonal_component
-        
-        # ========== BACKWARD PASS ==========
-        backward_estimates = np.full(len(result), np.nan)
-        
-        # Find first observation going backward (rightmost observation)
-        last_obs_idx = None
-        for i in range(len(result) - 1, -1, -1):
-            if mask.iloc[i]:
-                last_obs_idx = i
-                break
-        
-        # Start state from the last (rightmost) observation
-        if last_obs_idx is not None:
-            state = np.array([result.iloc[last_obs_idx], trend_est])  # Use actual observation, not mean
-        else:
-            state = np.array([mean_val, trend_est])
-        
-        state_covariance = np.array([[process_variance, 0], [0, process_variance * 0.01]])
-        
-        for i in range(len(result) - 1, -1, -1):
-            seasonal_component = seasonal_pattern[i % seasonal_period]
-            
-            # Predict step (going backward in time)
-            state_pred = F @ state
-            cov_pred = F @ state_covariance @ F.T + Q
-            
-            # Update step
-            if mask.iloc[i]:  # We have an observation
-                obs = result.iloc[i]
-                deseasonalized_obs = obs - seasonal_component
-                innovation = deseasonalized_obs - H @ state_pred
-                innovation_cov = H @ cov_pred @ H.T + R
-                kalman_gain = cov_pred @ H.T @ np.linalg.inv(innovation_cov)
-                
-                state = state_pred + kalman_gain @ np.array([innovation])
-                state_covariance = (np.eye(2) - kalman_gain @ H) @ cov_pred
-            else:
-                # Missing observation, use prediction
-                state = state_pred
-                state_covariance = cov_pred
-            
-            # Store backward estimate
-            backward_estimates[i] = state[0] + seasonal_component
-        
-        # ========== BLEND ESTIMATES ==========
-        # For observed values, use observation
-        # For gaps: average forward and backward estimates (both have context)
+        # Identify gaps to fill
+        current_gap_start = None
         for i in range(len(result)):
             if not mask.iloc[i]:
-                # Blend forward and backward estimates
-                if np.isnan(forward_estimates[i]) or np.isnan(backward_estimates[i]):
-                    # One-sided estimate
-                    estimate = forward_estimates[i] if not np.isnan(forward_estimates[i]) else backward_estimates[i]
-                else:
-                    # Both estimates available - take average for smooth transition
-                    estimate = (forward_estimates[i] + backward_estimates[i]) / 2.0
-                
-                result.iloc[i] = estimate
+                if current_gap_start is None:
+                    current_gap_start = i
+            else:
+                if current_gap_start is not None:
+                    gap_size = i - current_gap_start
+                    if gap_size <= max_gap:
+                        # Fill this gap with spline
+                        gap_indices = np.arange(current_gap_start, i)
+                        result.iloc[current_gap_start:i] = cs(gap_indices)
+                    current_gap_start = None
         
-        # ========== POST-SMOOTHING ==========
-        # Apply Savitzky-Golay filter to smooth remaining artifacts
-        # Only smooth the imputed values, preserve observations
-        if len(result) >= 9:
-            try:
-                smoothed = pd.Series(
-                    savgol_filter(result.values, window_length=9, polyorder=2),
-                    index=result.index
-                )
-                # Only replace imputed values with smoothed version, keep observations
-                result[~mask] = smoothed[~mask]
-            except:
-                pass  # If smoothing fails, keep as-is
-        
-        logger.debug(f"Kalman imputation: {n_nulls} → {result.isna().sum()} nulls")
-        
+        logger.debug(f"Spline imputation: {result.isna().sum()} nulls remaining")
     except Exception as e:
-        logger.debug(f"Kalman filter failed: {e}")
-        # Last resort: forward fill then backward fill
-        result = result.fillna(method='ffill').fillna(method='bfill')
+        logger.debug(f"Spline imputation failed: {e}, keeping gaps")
     
     return result
 
 
-def impute_station_features(df, station_code, features=None):
+def knn_impute_timestep(df, timestep_idx, knn_model, cyclic_cols, k=5):
+    """
+    Impute missing values in a timestep using pre-fitted KNN model.
+    Uses whatever features are available to fill missing ones.
+    
+    Args:
+        df: Full station dataframe with cyclic features
+        timestep_idx: Index of timestep to impute
+        knn_model: Pre-fitted NearestNeighbors model
+        cyclic_cols: List of cyclic feature column names
+        k: Number of nearest neighbors
+    
+    Returns:
+        Tuple of (imputed series, count of features where all k neighbors are null)
+    """
+    if not cyclic_cols:
+        return df.iloc[timestep_idx].copy(), 0
+    
+    knn_count = 0
+    mean_count = 0
+    missed_count = 0
+    try:
+        # Get cyclic features for this timestep
+        X_cyclic = df[cyclic_cols].values
+        # Find k nearest neighbors
+        distances, neighbor_indices = knn_model.kneighbors([X_cyclic[timestep_idx]])
+        neighbor_indices = neighbor_indices[0]
+        # Get imputable features (exclude cyclic features which are deterministic)
+        imputable_cols = [col for col in df.columns if col not in cyclic_cols and col != 'datetime']
+        # Fill missing values from neighbors
+        imputed = df.iloc[timestep_idx].copy()
+        for col in imputable_cols:
+            if pd.isna(imputed[col]):
+                neighbor_vals = df.iloc[neighbor_indices][col].values
+                valid_vals = neighbor_vals[~np.isnan(neighbor_vals)]
+                if len(valid_vals) > 0:
+                    imputed[col] = np.nanmean(valid_vals)
+                    knn_count += 1
+                else:
+                    # Fallback: mean imputation for this feature (excluding current row)
+                    feature_mean = df[col].drop(index=df.index[timestep_idx]).mean()
+                    if not np.isnan(feature_mean):
+                        imputed[col] = feature_mean
+                        mean_count += 1
+                    else:
+                        missed_count += 1
+        # logger.debug(f"KNN imputation timestep {timestep_idx}: filled from {len(neighbor_indices)} neighbors")
+    except Exception as e:
+        logger.debug(f"KNN imputation failed for timestep {timestep_idx}: {e}")
+        imputed = df.iloc[timestep_idx].copy()
+    return imputed, knn_count, mean_count, missed_count
 
+
+def impute_station_features(df, station_code, features=None):
+    """
+    Simplified two-stage imputation:
+    1. Spline interpolation for small gaps (2-3 timesteps = 6-9 hours)
+    2. KNN for larger/complete gaps using cyclic features
+    
+    Args:
+        df: Station dataframe with datetime index (or datetime column)
+        station_code: Station identifier for logging
+        features: List of features to impute (default: CORE_FEATURES)
+    
+    Returns:
+        Fully imputed dataframe with no nulls
+    """
     if features is None:
         features = [f for f in CORE_FEATURES if f in df.columns]
     
     df = df.copy()
-    logger.info(f"Station {station_code}: Starting imputation ({len(df)} timesteps, {len(features)} features)")
     
-    # Log null statistics BEFORE imputation
-    null_stats_before = df[features].isna().sum()
-    total_nulls_before = null_stats_before.sum()
-    completely_empty_rows_before = (df[features].isna().sum(axis=1) == len(features)).sum()
+    # Ensure datetime is set as index for easier timestep operations
+    if 'datetime' in df.columns:
+        df = df.set_index('datetime')
     
-    logger.debug(f"Station {station_code}: Before imputation:")
-    logger.debug(f"  - Total null values: {total_nulls_before}")
-    logger.debug(f"  - Completely empty rows: {completely_empty_rows_before}")
+    cyclic_cols = get_cyclic_feature_columns()
+    cyclic_cols = [col for col in cyclic_cols if col in df.columns]
+    imputable_features = [f for f in features if f not in cyclic_cols]
     
-    # Single pass: Apply Kalman filter imputation to each feature
-    logger.debug(f"Station {station_code}: Applying Kalman Filter imputation to all {len(features)} features")
+    logger.info(f"Station {station_code}: Imputing {len(imputable_features)} features across {len(df)} timesteps")
     
-    for feature in features:
+    # Log statistics BEFORE imputation
+    total_nulls_before = df[imputable_features].isna().sum().sum()
+    empty_timesteps_before = (df[imputable_features].isna().sum(axis=1) == len(imputable_features)).sum()
+    logger.debug(f"  Before: {total_nulls_before} nulls, {empty_timesteps_before} empty timesteps")
+    
+    # ========== STAGE 1: Spline interpolation for small gaps (2-3 timesteps) ========== 
+    logger.debug(f"  Stage 1: Spline interpolation for small gaps (≤3 timesteps)")
+    spline_count = 0
+    for feature in imputable_features:
         if feature not in df.columns:
             continue
-        
         n_nulls = df[feature].isna().sum()
         if n_nulls == 0:
-            logger.debug(f"  {feature}: 0 nulls, skipping")
             continue
-        
-        logger.debug(f"  {feature}: Imputing {n_nulls} null values using Kalman Filter")
-        
-        # Apply Kalman filter imputation
-        series = kalman_filter_imputation(df[feature])
-        
+        # Count how many will be filled by spline (gaps <= 3)
+        before = df[feature].isna().sum()
+        df[feature] = spline_imputation(df[feature], max_gap=3)
+        after = df[feature].isna().sum()
+        spline_count += before - after
         # Apply physical constraints
         if feature in LIMITS:
             min_val, max_val = LIMITS[feature]
-            series = series.clip(min_val, max_val)
-            logger.debug(f"  {feature}: Applied limits [{min_val}, {max_val}]")
-        
-        df[feature] = series
+            df[feature] = df[feature].clip(min_val, max_val)
     
-    # Log final statistics AFTER imputation
-    null_stats_after = df[features].isna().sum()
-    total_nulls_after = null_stats_after.sum()
-    completely_empty_rows_after = (df[features].isna().sum(axis=1) == len(features)).sum()
+    # ========== STAGE 2: KNN for remaining gaps using cyclic features ========== 
+    logger.debug(f"  Stage 2: KNN imputation for remaining gaps")
+    # Fit KNN model once upfront
+    X_cyclic = df[cyclic_cols].values
+    k = min(5, len(df) - 1)
+    knn_model = NearestNeighbors(n_neighbors=k, algorithm='ball_tree')
+    knn_model.fit(X_cyclic)
+    logger.debug(f"    KNN model fitted with k={k} neighbors")
+    # Find all timesteps with any missing values
+    has_nulls_mask = df[imputable_features].isna().any(axis=1)
+    null_indices = np.where(has_nulls_mask.values)[0]
+    knn_count = 0
+    mean_count = 0
+    missed_count = 0
+    if len(null_indices) > 0:
+        logger.debug(f"    Imputing {len(null_indices)} timesteps with missing values via KNN")
+        for idx in null_indices:
+            imputed_row, knn_c, mean_c, missed_c = knn_impute_timestep(df, idx, knn_model, cyclic_cols, k=k)
+            df.iloc[idx] = imputed_row
+            knn_count += knn_c
+            mean_count += mean_c
+            missed_count += missed_c
     
-    logger.info(f"Station {station_code}: Imputation complete:")
-    logger.info(f"  - Null values reduced from {total_nulls_before} to {total_nulls_after}")
-    logger.info(f"  - Empty rows reduced from {completely_empty_rows_before} to {completely_empty_rows_after}")
-    
+    # Log final statistics
+    total_nulls_after = df[imputable_features].isna().sum().sum()
+    empty_timesteps_after = (df[imputable_features].isna().sum(axis=1) == len(imputable_features)).sum()
+    logger.info(f"Station {station_code}: Imputation complete")
+    logger.info(f"  - Nulls: {total_nulls_before} → {total_nulls_after}")
+    logger.info(f"  - Empty timesteps: {empty_timesteps_before} → {empty_timesteps_after}")
+    logger.info(f"  - Spline-imputed: {spline_count}")
+    logger.info(f"  - KNN-imputed: {knn_count}")
+    logger.info(f"  - Mean-imputed (KNN fallback): {mean_count}")
+    logger.info(f"  - Missed (still null): {missed_count}")
+    # Reset datetime index if it was originally a column
+    if 'datetime' not in df.columns and df.index.name == 'datetime':
+        df = df.reset_index()
+    # Return imputation stats for aggregation
+    df._impute_stats = dict(spline=spline_count, knn=knn_count, mean=mean_count, missed=missed_count)
     return df
 

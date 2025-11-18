@@ -158,40 +158,39 @@ def process_all_stations(input_folder, output_folder, spatial_file):
     station_data = []
     skipped_no_features = 0
     skipped_low_coverage = 0
-    
+    # For overall imputation stats
+    overall_stats = dict(spline=0, knn=0, mean=0, missed=0)
     for i, input_path in enumerate(files):
         station_code = os.path.splitext(os.path.basename(input_path))[0]
-        
         try:
             # STEP 1: Load, standardize, filter dates, check ALL base features
             df = load_and_standardize_station(input_path, station_code)
             if df is None:
                 skipped_no_features += 1
                 continue
-            
             # STEP 2: Resample to 3h (also checks data coverage >= 60%)
             df = resample_to_3h(df, station_code, expected_timestamps)
             if df is None:
                 skipped_low_coverage += 1
                 continue
-            
             # STEP 3: Add cyclic features (BEFORE imputation for Kalman context)
             df = add_cyclic_features_step(df, station_code)
-            
             # STEP 4: Comprehensive imputation (with cyclic features as context)
             df = apply_imputation(df, station_code)
-            
+            # Collect imputation stats if available
+            impute_stats = getattr(df, '_impute_stats', None)
+            if impute_stats:
+                logger.info(f"Station {station_code}: Imputation stats: Spline={impute_stats['spline']}, KNN={impute_stats['knn']}, Mean={impute_stats['mean']}, Missed={impute_stats['missed']}")
+                for k in overall_stats:
+                    overall_stats[k] += impute_stats.get(k, 0)
             # STEP 5: Add spatial coordinates (last, since they're static and don't need processing)
             df = add_spatial_features(df, station_code, spatial_coords)
-            
             # STEP 6: Save processed station file immediately
             output_path = os.path.join(output_folder, f"{station_code}.csv")
             df.to_csv(output_path, index=False)
             logger.info(f"Station {station_code}: Successfully processed and saved ({i+1}/{len(files)})")
             logger.debug(f"Saved to: {output_path}")
-            
             station_data.append((df, station_code))
-            
         except Exception as e:
             logger.error(f"Station {station_code} processing failed: {e}")
             import traceback
@@ -202,7 +201,6 @@ def process_all_stations(input_folder, output_folder, spatial_file):
     total_datapoints = len(station_dfs) * len(expected_timestamps) * len(CORE_FEATURES)
     null_count = sum(df[CORE_FEATURES].isna().sum().sum() for df in station_dfs)
     data_coverage = (1 - null_count / total_datapoints) * 100 if total_datapoints > 0 else 0
-    
     logger.info("="*60)
     logger.info("FINAL STATISTICS")
     logger.info("="*60)
@@ -213,6 +211,6 @@ def process_all_stations(input_folder, output_folder, spatial_file):
     logger.info(f"Data coverage: {data_coverage:.2f}%")
     logger.info(f"Total datapoints: {total_datapoints:,}")
     logger.info(f"Null values remaining: {null_count:,}")
+    logger.info(f"Overall imputation stats: Spline={overall_stats['spline']}, KNN={overall_stats['knn']}, Mean={overall_stats['mean']}, Missed={overall_stats['missed']}")
     logger.info("="*60)
-    
     return station_dfs
