@@ -159,7 +159,7 @@ def process_all_stations(input_folder, output_folder, spatial_file):
     skipped_no_features = 0
     skipped_low_coverage = 0
     # For overall imputation stats
-    overall_stats = dict(spline=0, knn=0, mean=0, missed=0)
+    overall_stats = dict(knn=0, mean=0, missed=0)
     for i, input_path in enumerate(files):
         station_code = os.path.splitext(os.path.basename(input_path))[0]
         try:
@@ -180,7 +180,7 @@ def process_all_stations(input_folder, output_folder, spatial_file):
             # Collect imputation stats if available
             impute_stats = getattr(df, '_impute_stats', None)
             if impute_stats:
-                logger.info(f"Station {station_code}: Imputation stats: Spline={impute_stats['spline']}, KNN={impute_stats['knn']}, Mean={impute_stats['mean']}, Missed={impute_stats['missed']}")
+                logger.info(f"Station {station_code}: Imputation stats: KNN={impute_stats['knn']}, Mean={impute_stats['mean']}, Missed={impute_stats['missed']}")
                 for k in overall_stats:
                     overall_stats[k] += impute_stats.get(k, 0)
             # STEP 5: Add spatial coordinates (last, since they're static and don't need processing)
@@ -211,6 +211,6 @@ def process_all_stations(input_folder, output_folder, spatial_file):
     logger.info(f"Data coverage: {data_coverage:.2f}%")
     logger.info(f"Total datapoints: {total_datapoints:,}")
     logger.info(f"Null values remaining: {null_count:,}")
-    logger.info(f"Overall imputation stats: Spline={overall_stats['spline']}, KNN={overall_stats['knn']}, Mean={overall_stats['mean']}, Missed={overall_stats['missed']}")
+    logger.info(f"Overall imputation stats: KNN={overall_stats['knn']}, Mean={overall_stats['mean']}, Missed={overall_stats['missed']}")
     logger.info("="*60)
     return station_dfs

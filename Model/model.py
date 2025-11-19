@@ -81,165 +81,8 @@ class KANLayer(nn.Module):
 
 
 
-class WindAwareBias(nn.Module):
-    """
-    Computes wind-aware dynamic attention bias based on wind speed and direction.
-    
-    The bias enhances attention to upwind regions (pollution sources) and attenuates 
-    attention to downwind regions. This embeds the physical relationship between wind 
-    patterns and pollution transport directly into the attention mechanism.
-    """
-    def __init__(self, num_nodes, num_sectors=8, n_rings=3, radii=[50, 200, 500],
-                 wind_speed_idx=12, wind_direction_idx=13, device=None):
-        """
-        Initializes the WindAwareBias module.
-        
-        Args:
-            num_nodes (int): Number of spatial nodes (stations).
-            num_sectors (int): Number of dartboard sectors (typically 8).
-            n_rings (int): Number of dartboard rings.
-            radii (list): Ring radii in km for dartboard.
-            wind_speed_idx (int): Feature index for wind speed in input tensor.
-            wind_direction_idx (int): Feature index for wind direction in input tensor.
-            device (torch.device): Device to run computations on.
-        """
-        super().__init__()
-        self.num_nodes = num_nodes
-        self.num_sectors = num_sectors
-        self.n_rings = n_rings
-        self.radii = radii
-        self.wind_speed_idx = wind_speed_idx
-        self.wind_direction_idx = wind_direction_idx
-        self.device = device
-        
-        # Region indexing: region 0 is the center, regions 1..n_sectors are ring 1,
-        # regions n_sectors+1..2*n_sectors are ring 2, etc.
-        self.n_regions = 1 + n_rings * num_sectors
-        
-    def get_sector_from_direction(self, wind_direction):
-        """
-        Converts wind direction (0-360°) to sector index (0 to num_sectors-1).
-        Wind direction is where wind COMES FROM, so upwind sectors get positive bias.
-        
-        Args:
-            wind_direction (float): Wind direction in degrees (0-360).
-            
-        Returns:
-            int: Sector index (0 to num_sectors-1).
-        """
-        sector_size = 360.0 / self.num_sectors
-        # Add half sector offset to align sectors correctly
-        sector = int((wind_direction + sector_size / 2) % 360 / sector_size)
-        return sector % self.num_sectors
-    
-    def get_ring_from_speed(self, wind_speed, radii):
-        """
-        Determines which ring(s) to boost based on wind speed.
-        Stronger winds can transport pollution over longer distances.
-        
-        Args:
-            wind_speed (float): Wind speed in m/s.
-            radii (list): Ring radii in km.
-            
-        Returns:
-            list: Ring indices (1-indexed from rings list) to boost.
-        """
-        rings_to_boost = []
-        # Low wind speed: focus on nearby upwind (ring 1)
-        if wind_speed < 3.0:
-            rings_to_boost = [0]  # Ring 1 (0-50km)
-        # Medium wind: consider mid-range (rings 1 and 2)
-        elif wind_speed < 6.0:
-            rings_to_boost = [0, 1]  # Rings 1-2 (0-200km)
-        # Strong wind: consider all ranges
-        else:
-            rings_to_boost = list(range(len(radii)))  # All rings
-        
-        return rings_to_boost
-    
-    def compute_wind_aware_bias(self, wind_speed, wind_direction, assignment=None, mask=None):
-        """
-        Computes dynamic attention bias based on wind data.
-        
-        Args:
-            wind_speed (torch.Tensor): Wind speed values. Shape: (batch_size, num_nodes) or (batch_size, seq_len, num_nodes).
-            wind_direction (torch.Tensor): Wind direction values in degrees. Shape: (batch_size, num_nodes) or (batch_size, seq_len, num_nodes).
-            assignment (torch.Tensor, optional): Dartboard assignment matrix shape (num_nodes, num_nodes, n_regions).
-            mask (torch.Tensor, optional): Dartboard mask matrix shape (num_nodes, n_regions).
-            
-        Returns:
-            torch.Tensor: Bias tensor of shape (batch_size, num_nodes, 1, n_regions) to add to attention scores.
-        """
-        batch_size = wind_speed.shape[0]
-        device = wind_speed.device
-        
-        # Handle both 2D and 3D inputs (batch, nodes) or (batch, seq, nodes)
-        if wind_speed.dim() == 3:
-            # Take the last timestep if temporal dimension exists
-            wind_speed = wind_speed[:, -1, :]
-            wind_direction = wind_direction[:, -1, :]
-        
-        # Initialize bias: shape (batch_size, num_nodes, n_regions)
-        bias = torch.zeros(batch_size, self.num_nodes, self.n_regions, device=device)
-        
-        # Debug
-        # print(f"[DEBUG] batch_size={batch_size}, num_nodes={self.num_nodes}, n_regions={self.n_regions}, bias.shape={bias.shape}")
-        
-        # Process each node in the batch
-        for b in range(batch_size):
-            for node_idx in range(self.num_nodes):
-                ws = wind_speed[b, node_idx].item()
-                wd = wind_direction[b, node_idx].item()
-                
-                # Get wind direction sector (where wind comes FROM)
-                upwind_sector = self.get_sector_from_direction(wd)
-                
-                # Get rings to boost based on wind speed
-                rings_to_boost = self.get_ring_from_speed(ws, self.radii)
-                
-                # Center region (region 0) - self, no bias
-                bias[b, node_idx, 0] = 0.0
-                
-                # For upwind sectors in boosted rings: give positive bias (attract attention)
-                for ring_idx in rings_to_boost:
-                    region_idx = 1 + ring_idx * self.num_sectors + upwind_sector
-                    if region_idx < self.n_regions:
-                        # Strong bias for upwind regions (primary pollution sources)
-                        bias[b, node_idx, region_idx] = 3.0  # Amplifies upwind attention
-                
-                # For downwind sectors in boosted rings: give negative bias (repel attention)
-                downwind_sector = (upwind_sector + self.num_sectors // 2) % self.num_sectors
-                for ring_idx in rings_to_boost:
-                    region_idx = 1 + ring_idx * self.num_sectors + downwind_sector
-                    if region_idx < self.n_regions:
-                        # Negative bias for downwind regions (pollution affected regions)
-                        bias[b, node_idx, region_idx] = -2.0
-                
-                # Apply mask: regions not in dartboard assignment should stay at 0 (neutral)
-                # The regular mask will handle setting them to -inf later
-                # We only apply bias to regions that are valid according to the mask
-                if mask is not None and node_idx < mask.size(0):
-                    mask_node = mask[node_idx, :]  # Shape: (n_regions,), True = valid, False = invalid
-                    # Only keep biases for valid regions
-                    bias[b, node_idx, ~mask_node] = 0.0  # Set invalid regions to 0 (neutral bias)
-        
-        # Reshape to (batch_size, num_nodes, 1, n_regions) for attention broadcasting
-        bias = bias.unsqueeze(2)
-        
-        return bias
-    
-    def forward(self, wind_speed, wind_direction, assignment=None, mask=None):
-        """
-        Args:
-            wind_speed (torch.Tensor): Wind speed values (scaled).
-            wind_direction (torch.Tensor): Wind direction values in degrees (scaled).
-            assignment (torch.Tensor, optional): Dartboard assignment matrix.
-            mask (torch.Tensor, optional): Dartboard mask matrix.
-            
-        Returns:
-            torch.Tensor: Wind-aware bias tensor.
-        """
-        return self.compute_wind_aware_bias(wind_speed, wind_direction, assignment, mask)
+# WindAwareBias class removed - wind bias is now precomputed in preprocessing
+# and loaded directly from wind_bias.npy files. See wind_bias_generation.py
 
 
 class LatentLayer(nn.Module):
@@ -444,11 +287,11 @@ class SpatialAttention(nn.Module):
             num_sectors (int): Number of spatial sectors.
             assignment (torch.Tensor): Assignment matrix mapping nodes to sectors.
             mask (torch.Tensor): Mask to prevent attention to certain sectors.
-            use_wind_bias (bool): Whether to use wind-aware dynamic bias.
-            wind_speed_idx (int): Index of wind speed feature.
-            wind_direction_idx (int): Index of wind direction feature.
-            n_rings (int): Number of dartboard rings.
-            radii (list): Radii of dartboard rings.
+            use_wind_bias (bool): Whether to use precomputed wind-aware bias.
+            wind_speed_idx (int): Unused - kept for compatibility.
+            wind_direction_idx (int): Unused - kept for compatibility.
+            n_rings (int): Unused - kept for compatibility.
+            radii (list): Unused - kept for compatibility.
         """
         super().__init__()
         assert dim % heads == 0
@@ -461,8 +304,6 @@ class SpatialAttention(nn.Module):
         self.assignment = assignment
         self.mask = mask
         self.use_wind_bias = use_wind_bias
-        self.wind_speed_idx = wind_speed_idx
-        self.wind_direction_idx = wind_direction_idx
 
         self.q_linear = nn.Linear(dim, dim, bias=qkv_bias)
         self.kv_linear = nn.Linear(dim, dim * 2, bias=qkv_bias)
@@ -470,27 +311,16 @@ class SpatialAttention(nn.Module):
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(dropout)
         
-        # Wind-aware bias module
-        if use_wind_bias:
-            self.wind_bias = WindAwareBias(
-                num_nodes=assignment.shape[0] if assignment is not None else 1,
-                num_sectors=num_wind_sectors,
-                n_rings=n_rings,
-                radii=radii,
-                wind_speed_idx=wind_speed_idx,
-                wind_direction_idx=wind_direction_idx,
-                device=assignment.device if assignment is not None else None
-            )
+        # Wind-aware bias is precomputed in preprocessing, no module needed here
 
-    def forward(self, x, wind_speed=None, wind_direction=None, scalers=None):
+    def forward(self, x, wind_data=None):
         """
-        Forward pass for spatial attention with optional wind-aware bias.
+        Forward pass for spatial attention with optional precomputed wind bias.
 
         Args:
             x (torch.Tensor): Input tensor. Shape: (batch_size * seq_len, num_nodes, channels)
-            wind_speed (torch.Tensor, optional): Wind speed values. Shape: (batch_size, seq_len, num_nodes) or (batch_size, num_nodes)
-            wind_direction (torch.Tensor, optional): Wind direction values. Shape: (batch_size, seq_len, num_nodes) or (batch_size, num_nodes)
-            scalers (dict, optional): Dictionary containing scalers to inverse-transform wind features.
+            wind_data (dict, optional): Dictionary containing 'wind_bias_precomputed' key with
+                                       precomputed wind bias tensor.
 
         Returns:
             torch.Tensor: Output tensor with spatially attended features.
@@ -509,19 +339,11 @@ class SpatialAttention(nn.Module):
         attn = (q @ k.transpose(-2, -1)) * self.scale
         attn = attn.reshape(B, N, self.num_heads, 1, self.num_sector) + self.relative_bias
         
-        # Add wind-aware dynamic bias if available
-        if self.use_wind_bias and wind_speed is not None and wind_direction is not None:
-            # Check if wind_speed is actually a dict containing wind_bias_precomputed
-            wind_bias_precomputed = None
-            if isinstance(wind_speed, dict):
-                wind_bias_precomputed = wind_speed.get('wind_bias_precomputed', None)
-                wind_speed = wind_speed.get('wind_speed', None)
-            
-            if isinstance(wind_direction, dict):
-                wind_direction = wind_direction.get('wind_direction', None)
+        # Add precomputed wind bias if available
+        if self.use_wind_bias and wind_data is not None and isinstance(wind_data, dict):
+            wind_bias_precomputed = wind_data.get('wind_bias_precomputed', None)
             
             if wind_bias_precomputed is not None:
-                # Use precomputed wind bias directly (FAST PATH - no computation needed)
                 # wind_bias_precomputed shape: (batch_size, seq_len, num_nodes, n_regions)
                 # Reshape to (B, N, 1, 1, num_regions) where B = batch_size * seq_len
                 wind_bias = wind_bias_precomputed.reshape(B, N, 1, 1, -1).float().to(attn.device)
@@ -530,38 +352,6 @@ class SpatialAttention(nn.Module):
                 wind_bias = wind_bias.expand(-1, -1, self.num_heads, -1, -1)  # (B, N, heads, 1, num_regions)
                 
                 # Add to attention (broadcasting will align dimensions)
-                attn = attn + wind_bias
-            
-            elif wind_speed is not None and wind_direction is not None:
-                # Compute wind bias dynamically (SLOW PATH - original behavior)
-                # Inverse-scale wind features to physical units
-                if scalers is not None and 'wind_speed_scaler' in scalers and 'wind_direction_scaler' in scalers:
-                    ws_scaler = scalers['wind_speed_scaler']
-                    wd_scaler = scalers['wind_direction_scaler']
-                    
-                    # Reshape wind data if needed: (B, T, N) -> (B*T, N)
-                    if wind_speed.dim() == 3:
-                        B_wind, T_wind, N_wind = wind_speed.shape
-                        wind_speed = wind_speed.reshape(B_wind * T_wind, N_wind)
-                        wind_direction = wind_direction.reshape(B_wind * T_wind, N_wind)
-                    
-                    # Inverse transform: bring from [-1, 1] scale back to physical units
-                    wind_speed_physical = ws_scaler.inverse_transform(wind_speed.cpu().numpy())
-                    wind_direction_physical = wd_scaler.inverse_transform(wind_direction.cpu().numpy())
-                    
-                    wind_speed = torch.from_numpy(wind_speed_physical).float().to(attn.device)
-                    wind_direction = torch.from_numpy(wind_direction_physical).float().to(attn.device)
-                
-                # Ensure wind data is on the same device
-                wind_speed = wind_speed.to(attn.device)
-                wind_direction = wind_direction.to(attn.device)
-                
-                # Compute wind-aware bias
-                wind_bias = self.wind_bias(wind_speed, wind_direction, self.assignment, self.mask)
-                # wind_bias shape: (B*T, N, 1, n_regions) from compute_wind_aware_bias
-                wind_bias = wind_bias.expand(-1, -1, self.num_heads, -1, -1)  # (B*T, N, heads, 1, n_regions)
-                
-                # Add wind bias to attention scores
                 attn = attn + wind_bias
         
         mask = self.mask.reshape(1, N, 1, 1, self.num_sector)
@@ -739,51 +529,32 @@ class DS_MSA(nn.Module):
                 PreNorm(dim, FeedForward(dim, mlp_dim, dropout=dropout))
             ]))
 
-    def forward(self, x, wind_speed=None, wind_direction=None, scalers=None, wind_data=None):
+    def forward(self, x, wind_data=None):
         """
         Forward pass for the DS_MSA block.
 
         Args:
             x (torch.Tensor): Input tensor. Shape: (batch_size, channels, num_nodes, seq_len)
-            wind_speed (torch.Tensor, optional): DEPRECATED. Use wind_data dict instead.
-            wind_direction (torch.Tensor, optional): DEPRECATED. Use wind_data dict instead.
-            scalers (dict, optional): Dictionary containing scalers to inverse-transform wind features.
-            wind_data (dict, optional): Dictionary with 'wind_speed', 'wind_direction', and optionally 'wind_bias_precomputed'
+            wind_data (dict, optional): Dictionary with 'wind_bias_precomputed' tensor
 
         Returns:
             torch.Tensor: Output tensor with spatially attended features.
                           Shape: (batch_size, channels, num_nodes, seq_len)
         """
-        # Handle both old and new API
-        if wind_data is not None:
-            wind_speed = wind_data.get('wind_speed', wind_speed)
-            wind_direction = wind_data.get('wind_direction', wind_direction)
-            wind_bias_precomputed = wind_data.get('wind_bias_precomputed', None)
-        else:
-            wind_bias_precomputed = None
-        
         b, c, n, t = x.shape
         x = x.permute(0, 3, 2, 1).reshape(b*t, n, c)
         
         # Reshape wind_bias if present
-        if wind_bias_precomputed is not None:
+        wind_data_reshaped = None
+        if wind_data is not None and 'wind_bias_precomputed' in wind_data:
+            wind_bias_precomputed = wind_data['wind_bias_precomputed']
             # wind_bias_precomputed shape: (batch, seq_len, num_nodes, num_regions)
             # Reshape to (batch*seq_len, num_nodes, num_regions) for processing
             wind_bias_reshaped = wind_bias_precomputed.reshape(b*t, n, -1)
-        else:
-            wind_bias_reshaped = None
+            wind_data_reshaped = {'wind_bias_precomputed': wind_bias_reshaped}
         
         for attn, ff in self.layers:
-            # If we have precomputed wind bias, pass it packaged in wind_speed dict
-            if wind_bias_reshaped is not None:
-                wind_speed_packaged = {
-                    'wind_speed': wind_speed,
-                    'wind_direction': wind_direction,
-                    'wind_bias_precomputed': wind_bias_reshaped
-                }
-                x = attn(x, wind_speed_packaged, None, scalers) + x
-            else:
-                x = attn(x, wind_speed, wind_direction, scalers) + x
+            x = attn(x, wind_data_reshaped) + x
             x = ff(x) + x
         x = x.reshape(b, t, n, c).permute(0, 3, 2, 1)
         return x
@@ -977,16 +748,15 @@ class AirFormer(nn.Module):
         self.end_conv_1 = nn.Conv2d(in_channels, end_channels, kernel_size=(1, 1))
         self.end_conv_2 = nn.Conv2d(end_channels, horizon*output_dim, kernel_size=(1, 1))
 
-    def forward(self, x, supports=None, wind_data=None, scalers=None):
+    def forward(self, x, supports=None, wind_data=None):
         """
         Forward pass for the AirFormer model.
 
         Args:
             x (torch.Tensor): Input tensor. Shape: (batch_size, seq_len, num_nodes, input_dim)
             supports: Not used in this model, but kept for compatibility with other frameworks.
-            wind_data (dict, optional): Dictionary containing wind speed and direction.
-                                        Keys: 'wind_speed', 'wind_direction'
-            scalers (dict, optional): Dictionary containing scalers for inverse-transforming wind features.
+            wind_data (dict, optional): Dictionary containing 'wind_bias_precomputed' tensor.
+                                       Shape: (batch_size, seq_len, num_nodes, n_regions)
 
         Returns:
             If stochastic_flag is True:
@@ -1008,8 +778,8 @@ class AirFormer(nn.Module):
         d = []
         for i in range(self.blocks):
             if self.spatial_flag:
-                # Pass entire wind_data dict (may include wind_bias_precomputed)
-                x = self.s_modules[i](x, wind_data=wind_data, scalers=scalers)
+                # Pass entire wind_data dict (contains wind_bias_precomputed)
+                x = self.s_modules[i](x, wind_data=wind_data)
             x = self.t_modules[i](x)
             x = self.bn[i](x)
             d.append(x)
