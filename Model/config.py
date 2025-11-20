@@ -10,7 +10,7 @@ def get_config():
         "batch_size": 30,              # Number of samples per training batch
         "output_dim": 1,               # Number of output features (1 PM2.5)
         "grad_accum_steps": 1,         # Gradient accumulation steps
-        "hidden_dim": 48,              # Model hidden dimension size
+        "hidden_dim": 34,              # Model hidden dimension size
         "end_channels_mult": 8,        # Multiplier for end channels
         "num_heads": 2,                # Number of attention heads
         "blocks": 4,                   # Number of transformer blocks
@@ -23,7 +23,7 @@ def get_config():
         "num_workers": 0,              # Number of DataLoader workers
         "seq_len": 24,                # Input sequence length (7 days × 24 hours at 3-hourly) 
         "horizon": 24,                 # Forecast horizon (3 days at 3-hourly = 24 timesteps)
-        "input_dim": 21,               # Number of input features (before cyclic: 15 core + 6 cyclic)
+        "input_dim": 17,               # Number of input features (before cyclic: 15 core + 6 cyclic)
         "use_spatial": True,           # Enable spatial attention (DS-MSA)
         "use_stochastic": True,        # Enable stochastic latent variables
         "dartboard": 1,                # Dartboard partition type (50-200-500 km rings)

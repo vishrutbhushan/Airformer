@@ -21,8 +21,7 @@ class Trainer:
         self.test_loader = data['test_loader']
         self.scaler = data['scaler']
         
-        self.optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
-        
+        self.optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)        
         self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             self.optimizer, 
             mode='min',                    # Minimize validation loss
