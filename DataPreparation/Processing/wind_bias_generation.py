@@ -39,12 +39,13 @@ def compute_wind_bias_matrix(wind_speed, wind_direction, num_nodes, num_sectors=
         
         # Determine which rings to boost based on wind speed
         # Stronger winds transport pollution further
+        # Ring indices: 0 (0-50km), 1 (50-200km), 2 (200-500km)
         if wind_spd < 3.0:
-            rings_to_boost = [1]
+            rings_to_boost = [0]  # Only nearest ring
         elif wind_spd < 6.0:
-            rings_to_boost = [1, 2]
+            rings_to_boost = [0, 1]  # Near and middle rings
         else:
-            rings_to_boost = [1, 2, 3]
+            rings_to_boost = [0, 1, 2]  # All rings
         
         # Apply bias to upwind regions
         for ring_idx in rings_to_boost:

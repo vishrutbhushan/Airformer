@@ -87,6 +87,7 @@ def main():
         local_windows=config.get('local_windows', None), # Local window config (optional)
         use_wind_bias=config.get('use_wind_bias', False), # Use wind-aware dynamic bias
         use_kan=config.get('use_kan', False), # Use Kolmogorov-Arnold Networks
+        kan_basis=config.get('kan_basis', 4), # Number of basis functions for KAN
         device=device                      # Device to run model (cpu/cuda)
     ).to(device)                          # Move model to device (GPU/CPU)
     

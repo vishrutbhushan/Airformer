@@ -89,11 +89,8 @@ class LatentLayer(nn.Module):
     """
     Encodes input features to produce the parameters (mu and sigma) of a latent variable distribution.
     This layer is a core component of the stochastic model, enabling the capture of uncertainty.
-    
-    Enhanced with KAN layers for improved non-linear feature transformation before
-    computing distribution parameters.
     """
-    def __init__(self, dm_dim, latent_dim_in, latent_dim_out, hidden_dim, num_layers=2, use_kan=True, num_basis=8):
+    def __init__(self, dm_dim, latent_dim_in, latent_dim_out, hidden_dim, num_layers=2):
         """
         Initializes the LatentLayer.
 
@@ -103,46 +100,19 @@ class LatentLayer(nn.Module):
             latent_dim_out (int): Output latent dimension.
             hidden_dim (int): Dimension of the hidden layers.
             num_layers (int): Number of hidden layers in the encoder.
-            use_kan (bool): Whether to use KAN layers for hidden transformations.
-            num_basis (int): Number of basis functions for KAN layers.
         """
         super().__init__()
         self.num_layers = num_layers
-        self.use_kan = use_kan
-        self.hidden_dim = hidden_dim
-        
-        # Initial projection: Conv2d for spatial-temporal structure preservation
         self.enc_in = nn.Conv2d(dm_dim + latent_dim_in, hidden_dim, 1)
         
-        # Build hidden layers with optional KAN
-        if use_kan:
-            # KAN-based hidden layers for better non-linear modeling
-            self.enc_hidden = nn.ModuleList()
-            for i in range(num_layers):
-                self.enc_hidden.append(
-                    nn.Sequential(
-                        nn.Conv2d(hidden_dim, hidden_dim, 1),  # Depthwise convolution
-                        nn.BatchNorm2d(hidden_dim),
-                    )
-                )
-            # Separate KAN projection layers for each position (applied after conv)
-            self.kan_layers = nn.ModuleList([
-                KANLayer(hidden_dim, hidden_dim, num_basis=num_basis)
-                for _ in range(num_layers)
-            ])
-        else:
-            # Standard Conv2d with ReLU
-            layers = []
-            for _ in range(num_layers):
-                layers.append(nn.Conv2d(hidden_dim, hidden_dim, 1))
-                layers.append(nn.ReLU(inplace=True))
-            self.enc_hidden = nn.Sequential(*layers)
+        layers = []
+        for _ in range(num_layers):
+            layers.append(nn.Conv2d(hidden_dim, hidden_dim, 1))
+            layers.append(nn.ReLU(inplace=True))
+        self.enc_hidden = nn.Sequential(*layers)
         
-        # Output projections for distribution parameters
-        self.enc_out_1 = nn.Conv2d(hidden_dim, latent_dim_out, 1)  # mu
-        self.enc_out_2 = nn.Conv2d(hidden_dim, latent_dim_out, 1)  # log_sigma
-        
-        self.activation = nn.ReLU()
+        self.enc_out_1 = nn.Conv2d(hidden_dim, latent_dim_out, 1)
+        self.enc_out_2 = nn.Conv2d(hidden_dim, latent_dim_out, 1)
 
     def forward(self, x):
         """
@@ -160,29 +130,10 @@ class LatentLayer(nn.Module):
                                         Shape: (batch_size, latent_dim_out, num_nodes, seq_len)
         """
         h = self.enc_in(x)
-        
-        if self.use_kan:
-            # Apply KAN-enhanced layers
-            for i, (conv_layer, kan_layer) in enumerate(zip(self.enc_hidden, self.kan_layers)):
-                h = conv_layer(h)  # Conv2d + BatchNorm
-                
-                # Apply KAN layer on spatial-temporal dimensions
-                b, c, n, t = h.shape
-                h_reshaped = h.permute(0, 2, 3, 1).reshape(-1, c)  # Flatten spatial-temporal
-                h_kan = kan_layer(h_reshaped)
-                h = h_kan.reshape(b, n, t, c).permute(0, 3, 1, 2)  # Reshape back
-                
-                h = self.activation(h)
-        else:
-            # Standard processing
-            for i in range(self.num_layers):
-                h = self.enc_hidden[i](h)
-        
-        # Generate distribution parameters with clamping for stability
-        mu = torch.clamp(self.enc_out_1(h), min=-10, max=10)
-        log_sigma = torch.clamp(self.enc_out_2(h), min=-10, max=10)
-        sigma = torch.exp(log_sigma) + 1e-6  # Add small epsilon for numerical stability
-        
+        for i in range(self.num_layers):
+            h = self.enc_hidden[i](h)
+        mu = torch.minimum(self.enc_out_1(h), torch.ones_like(h)*10)
+        sigma = torch.minimum(self.enc_out_2(h), torch.ones_like(h)*10)
         return mu, sigma
 
 
@@ -190,10 +141,8 @@ class StochasticModel(nn.Module):
     """
     Manages a stack of LatentLayers to create a hierarchical stochastic model.
     This allows for capturing dependencies and uncertainties at multiple levels of abstraction.
-    
-    Enhanced with KAN layers for improved latent variable modeling.
     """
-    def __init__(self, dm_dim, latent_dim, num_blocks=4, use_kan=True, num_basis=8):
+    def __init__(self, dm_dim, latent_dim, num_blocks=4):
         """
         Initializes the StochasticModel.
 
@@ -201,20 +150,16 @@ class StochasticModel(nn.Module):
             dm_dim (int): Dimension of the deterministic memory input.
             latent_dim (int): Dimension of the latent variables.
             num_blocks (int): Number of hierarchical blocks (and thus LatentLayers).
-            use_kan (bool): Whether to use KAN layers in LatentLayers.
-            num_basis (int): Number of basis functions for KAN layers.
         """
         super().__init__()
         self.layers = nn.ModuleList()
         
         # Bottom n-1 layers receive deterministic memory and latent variables from the layer below.
         for _ in range(num_blocks-1):
-            self.layers.append(LatentLayer(dm_dim, latent_dim, latent_dim, latent_dim, 2, 
-                                          use_kan=use_kan, num_basis=num_basis))
+            self.layers.append(LatentLayer(dm_dim, latent_dim, latent_dim, latent_dim, 2))
         
         # The top layer only receives deterministic memory.
-        self.layers.append(LatentLayer(dm_dim, 0, latent_dim, latent_dim, 2, 
-                                      use_kan=use_kan, num_basis=num_basis))
+        self.layers.append(LatentLayer(dm_dim, 0, latent_dim, latent_dim, 2))
 
     def reparameterize(self, mu, sigma):
         """
@@ -229,7 +174,7 @@ class StochasticModel(nn.Module):
             torch.Tensor: A sample from the latent distribution.
         """
         eps = torch.randn_like(sigma, requires_grad=False)
-        return mu + eps * sigma
+        return mu + eps*sigma
 
     def forward(self, d):
         """
@@ -249,13 +194,15 @@ class StochasticModel(nn.Module):
                                          Shape: (num_blocks, batch_size, latent_dim, num_nodes, seq_len)
         """
         # d: [num_blocks, b, c, n, t]
-        _mu, _sigma = self.layers[-1](d[-1])
+        _mu, _logsigma = self.layers[-1](d[-1])
+        _sigma = torch.exp(_logsigma) + 1e-3
         mus = [_mu]
         sigmas = [_sigma]
         z = [self.reparameterize(_mu, _sigma)]
 
         for i in reversed(range(len(self.layers)-1)):
-            _mu, _sigma = self.layers[i](torch.cat((d[i], z[-1]), dim=1))
+            _mu, _logsigma = self.layers[i](torch.cat((d[i], z[-1]), dim=1))
+            _sigma = torch.exp(_logsigma) + 1e-3
             mus.append(_mu)
             sigmas.append(_sigma)
             z.append(self.reparameterize(_mu, _sigma))
@@ -453,9 +400,9 @@ class PreNorm(nn.Module):
 
 class FeedForward(nn.Module):
     """
-    Standard FeedForward layer for transformer blocks.
-    Uses simple 2-layer MLP with GELU activation.
-    KAN is not used here as it adds unnecessary complexity to already-simple layers.
+    A standard two-layer MLP with GELU activation and dropout.
+    Used as the feedforward network in the transformer blocks.
+    Enhanced with optional KAN layers for improved non-linear transformations.
     """
     def __init__(self, dim, hidden_dim, dropout=0., use_kan=False, num_basis=8):
         """
@@ -465,21 +412,38 @@ class FeedForward(nn.Module):
             dim (int): Input/output dimension.
             hidden_dim (int): Hidden dimension.
             dropout (float): Dropout rate.
-            use_kan (bool): Unused - kept for compatibility. FF always uses standard MLP.
-            num_basis (int): Unused - kept for compatibility.
+            use_kan (bool): Whether to use KAN layers instead of standard Linear layers.
+            num_basis (int): Number of basis functions for KAN layers.
         """
         super().__init__()
-        # Standard MLP: simple, efficient, proven effective in transformers
-        self.net = nn.Sequential(
-            nn.Linear(dim, hidden_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, dim),
-            nn.Dropout(dropout)
-        )
+        self.use_kan = use_kan
+        
+        if use_kan:
+            # KAN-enhanced feedforward
+            self.fc1 = KANLayer(dim, hidden_dim, num_basis=num_basis)
+            self.fc2 = KANLayer(hidden_dim, dim, num_basis=num_basis)
+            self.activation = nn.GELU()
+            self.dropout = nn.Dropout(dropout)
+        else:
+            # Standard MLP
+            self.net = nn.Sequential(
+                nn.Linear(dim, hidden_dim),
+                nn.GELU(),
+                nn.Dropout(dropout),
+                nn.Linear(hidden_dim, dim),
+                nn.Dropout(dropout)
+            )
     
     def forward(self, x):
-        return self.net(x)
+        if self.use_kan:
+            x = self.fc1(x)
+            x = self.activation(x)
+            x = self.dropout(x)
+            x = self.fc2(x)
+            x = self.dropout(x)
+            return x
+        else:
+            return self.net(x)
 
 class DS_MSA(nn.Module):
     """
@@ -506,8 +470,8 @@ class DS_MSA(nn.Module):
             wind_direction_idx (int): Index of wind direction feature.
             n_rings (int): Number of dartboard rings.
             radii (list): Radii of dartboard rings.
-            use_kan (bool): Unused - kept for compatibility.
-            num_basis (int): Unused - kept for compatibility.
+            use_kan (bool): Whether to use KAN layers in feedforward.
+            num_basis (int): Number of basis functions for KAN layers.
         """
         super().__init__()
         self.use_wind_bias = use_wind_bias
@@ -526,7 +490,7 @@ class DS_MSA(nn.Module):
                                n_rings=n_rings,
                                radii=radii,
                                num_wind_sectors=8),
-                PreNorm(dim, FeedForward(dim, mlp_dim, dropout=dropout))
+                PreNorm(dim, FeedForward(dim, mlp_dim, dropout=dropout, use_kan=use_kan, num_basis=num_basis))
             ]))
 
     def forward(self, x, wind_data=None):
@@ -579,8 +543,8 @@ class CT_MSA(nn.Module):
             num_time (int): Number of time steps for positional embedding.
             dropout (float): Dropout rate.
             device (torch.device): Device for mask tensor.
-            use_kan (bool): Unused - kept for compatibility.
-            num_basis (int): Unused - kept for compatibility.
+            use_kan (bool): Whether to use KAN layers in feedforward.
+            num_basis (int): Number of basis functions for KAN layers.
         """
         super().__init__()
         self.pos_embedding = nn.Parameter(torch.randn(1, num_time, dim))
@@ -589,7 +553,7 @@ class CT_MSA(nn.Module):
             self.layers.append(nn.ModuleList([
                 TemporalAttention(dim=dim, heads=heads, window_size=window_size,
                                 dropout=dropout, device=device),
-                PreNorm(dim, FeedForward(dim, mlp_dim, dropout=dropout))
+                PreNorm(dim, FeedForward(dim, mlp_dim, dropout=dropout, use_kan=use_kan, num_basis=num_basis))
             ]))
 
     def forward(self, x):
@@ -663,8 +627,7 @@ class AirFormer(nn.Module):
             wind_direction_idx (int): Feature index for wind direction.
             n_wind_rings (int): Number of dartboard rings for wind bias.
             wind_radii (list): Radii for dartboard rings in wind bias.
-            use_kan (bool): Whether to use Kolmogorov-Arnold Networks in LatentLayers only.
-                           Not used in feedforward layers (simple MLP is more efficient).
+            use_kan (bool): Whether to use Kolmogorov-Arnold Networks in feedforward layers.
             kan_basis (int): Number of basis functions for KAN layers (when used).
             device (torch.device): The device to run the model on.
         """
@@ -731,12 +694,10 @@ class AirFormer(nn.Module):
             
             self.bn.append(nn.BatchNorm2d(hidden_channels))
         
-        # Stochastic models for capturing uncertainty with optional KAN-enhanced layers
+        # Stochastic models for capturing uncertainty
         if stochastic_flag:
-            self.generative_model = StochasticModel(hidden_channels, hidden_channels, blocks, 
-                                                   use_kan=use_kan, num_basis=kan_basis)
-            self.inference_model = StochasticModel(hidden_channels, hidden_channels, blocks,
-                                                  use_kan=use_kan, num_basis=kan_basis)
+            self.generative_model = StochasticModel(hidden_channels, hidden_channels, blocks)
+            self.inference_model = StochasticModel(hidden_channels, hidden_channels, blocks)
             self.reconstruction_model = nn.Sequential(
                 nn.Conv2d(hidden_channels*blocks, end_channels, kernel_size=(1, 1)),
                 nn.ReLU(inplace=True),

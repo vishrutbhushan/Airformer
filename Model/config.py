@@ -37,6 +37,7 @@ def get_config():
         "dartboard_path": "../DataPreparation/Processing/Dataset/INDIAN_AIR/local_partition/50-200-500",
         "log_dir": "./logs",
         "use_wind_bias": False,         # Enable wind-aware attention bias
-        "use_kan": False,              # Enable Kolmogorov-Arnold Networks in LatentLayers
+        "use_kan": False,              # Enable Kolmogorov-Arnold Networks in feedforward layers
+        "kan_basis": 2,                # Number of basis functions for KAN (when use_kan=True)
     }
     return config
