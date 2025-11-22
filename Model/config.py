@@ -17,7 +17,7 @@ def get_config():
         "dropout": 0.1,                # Dropout rate for regularization
         "learning_rate": 5e-4,         # Initial learning rate
         "max_epochs": 300,             # Maximum number of training epochs
-        "patience": 30,                # Early stopping patience
+        "patience": 20,                # Early stopping patience
         "use_amp": True,               # Use automatic mixed precision
         "pin_memory": True,            # Pin memory for DataLoader
         "num_workers": 0,              # Number of DataLoader workers
@@ -30,7 +30,7 @@ def get_config():
         "local_windows": [3, 6, 12, 24], # Local window sizes for CT-MSA
         "weight_decay": 5e-6,          # Weight decay for optimizer
         "grad_clip": 5.0,              # Gradient clipping value
-        "scheduler_patience": 10,      # LR scheduler patience
+        "scheduler_patience": 8,       # LR scheduler patience
         "scheduler_factor": 0.5,       # LR scheduler reduction factor
         "scheduler_threshold": 1e-4,   # LR scheduler improvement threshold
         "data_path": "../DataPreparation/Processing/Dataset/INDIAN_AIR",
