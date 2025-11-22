@@ -27,6 +27,25 @@ from dataloader import get_dataloader, check_device
 from trainer import Trainer
 from config import get_config, print_config
 
+"""
+AirFormer Training Script
+
+Data Format:
+- Input features: 21 total
+  - 15 base measurements: PM2.5, PM10, NO, NO2, NOx, NH3, SO2, CO, O3, Benzene,
+                         Temperature, Humidity, Wind Speed, Wind Direction, Rainfall
+  - 6 cyclic temporal features: hour_sin, hour_cos, day_of_week_sin, day_of_week_cos,
+                               month_sin, month_cos
+
+- Input shape: (batch_size, seq_len=24, num_nodes, 21 features)
+- Output shape: (batch_size, horizon=24, num_nodes, 1)  [PM2.5 predictions]
+
+Cyclic Features (added during preprocessing):
+- Encoded using sine/cosine transformations to capture daily/weekly/yearly patterns
+- Naturally normalized to [-1, 1] range
+- No missing values (derived deterministically from datetime)
+"""
+
 
 def main():
     # Load configuration
@@ -57,7 +76,8 @@ def main():
         config['data_path'],              # Path to preprocessed data
         config['batch_size'],             # Batch size for training
         num_workers=config['num_workers'],# Number of worker processes for data loading
-        pin_memory=config['pin_memory'] and device.type == 'cuda' # Use pinned memory for faster GPU transfer
+        pin_memory=config['pin_memory'] and device.type == 'cuda', # Use pinned memory for faster GPU transfer
+        use_wind_bias=config.get('use_wind_bias', False) # Load wind bias if enabled
     )
     
     # Get actual number of stations from data
@@ -83,7 +103,9 @@ def main():
         dartboard=config['dartboard'],     # Precomputed spatial assignment matrix
         dartboard_path=config['dartboard_path'], # Path to dartboard file
         local_windows=config.get('local_windows', None), # Local window config (optional)
-        device=device                      # Device to run model (cpu/cuda)
+        device=device,                     # Device to run model (cpu/cuda)
+        use_kan=config.get('use_kan', False), # Use KAN for feedforward layers
+        use_wind_bias=config.get('use_wind_bias', False) # Use precomputed wind bias
     ).to(device)                          # Move model to device (GPU/CPU)
     
     total_params = sum(p.numel() for p in model.parameters()) # Total number of model parameters

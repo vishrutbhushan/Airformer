@@ -4,12 +4,22 @@ import logging
 START_DATE = '2019-03-31'
 END_DATE = '2023-03-31'
 
-# Core features to process
-CORE_FEATURES = [
+# Base features
+BASE_FEATURES = [
     'PM2.5 (µg/m³)', 'PM10 (µg/m³)', 'Nitric Oxide (µg/m³)', 'Nitrogen Dioxide (µg/m³)', 'Nitrogen Oxides (ppb)',
     'Ammonia (µg/m³)', 'Sulphur Dioxide (µg/m³)', 'Carbon Monoxide (mg/m³)', 'Ozone (µg/m³)', 'Benzene (µg/m³)',
     'Temperature (°C)', 'Relative Humidity (%)', 'Wind Speed (m/s)', 'Wind Direction (°)', 'Rainfall (mm)'
 ]
+
+# Cyclic temporal features
+CYCLIC_FEATURES = [
+    'hour_sin', 'hour_cos',
+    'day_of_week_sin', 'day_of_week_cos',
+    'month_sin', 'month_cos'
+]
+
+# All core features
+CORE_FEATURES = BASE_FEATURES + CYCLIC_FEATURES
 
 # Physical limits
 LIMITS = {

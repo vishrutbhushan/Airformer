@@ -1,6 +1,5 @@
 import pandas as pd
-from sympy import limit
-from config import logger, CORE_FEATURES, LIMITS, FEATURE_MAPPING, DROP_COLS, START_DATE, END_DATE
+from config import logger, BASE_FEATURES, FEATURE_MAPPING, START_DATE, END_DATE
 
 def load_spatial_coordinates(spatial_file):
     logger.info(f"Loading spatial coordinates from: {spatial_file}")
@@ -26,26 +25,3 @@ def merge_and_standardize_features(df):
     if merged_count > 0:
         logger.debug(f"Merged {merged_count} feature groups with multiple columns")
     return out_df
-
-def interpolate_station_data(df):
-    feature_cols = [c for c in CORE_FEATURES if c in df.columns]
-    original_nulls = df[feature_cols].isna().sum().sum()
-    capped_count = 0
-    for col in feature_cols:
-        if col in LIMITS:
-            min_val, max_val = LIMITS[col]
-            numeric_col = pd.to_numeric(df[col], errors='coerce')
-            out_of_bounds = ((numeric_col < min_val) | (numeric_col > max_val)).sum()
-            capped_count += out_of_bounds
-    df = df.sort_values('datetime').reset_index(drop=True)
-    for col in feature_cols:
-        df[col] = pd.to_numeric(df[col], errors='coerce')
-        if df[col].notna().any():
-            df[col] = df[col].interpolate(method='linear', limit=2)
-            df[col] = df[col].ffill(limit=2).bfill(limit=2)
-            if df[col].isna().any():
-                default_val = df[col].mean()
-                df[col] = df[col].fillna(default_val)
-    remaining_nulls = df[feature_cols].isna().sum().sum()
-    interpolated_count = original_nulls - remaining_nulls
-    return df, interpolated_count, capped_count

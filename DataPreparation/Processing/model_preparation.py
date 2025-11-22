@@ -10,7 +10,6 @@ def prepare_data_for_model(data_folder, output_dir):
     logger.info("Preparing tensors")
     station_files = sorted(glob.glob(os.path.join(data_folder, "*.csv")))
     logger.info(f"Found {len(station_files)} preprocessed station files")
-    # Use a global, consistent time index based on config START_DATE / END_DATE
     time_idx = pd.date_range(start=START_DATE, end=END_DATE, freq='3h')
     n_times = len(time_idx)
     logger.info(f"Time range: {time_idx[0]} to {time_idx[-1]}")
@@ -65,9 +64,7 @@ def prepare_data_for_model(data_folder, output_dir):
                 vals = df[feature].values
                 if len(vals) != n_times:
                     logger.warning(f"Station {station['station_code']} feature {feature} length {len(vals)} != expected {n_times}; reindexing filled with NaN/zeros")
-                    # ensure length matches by reindexing above; fill NaN with 0.0
                     vals = pd.Series(vals).reindex(range(n_times)).fillna(0.0).values
-                # convert to float and fill NaNs
                 arr = np.array(pd.to_numeric(vals, errors='coerce')).astype(np.float32)
                 arr = np.nan_to_num(arr, nan=0.0)
                 data[:, i, j] = arr
@@ -80,6 +77,12 @@ def prepare_data_for_model(data_folder, output_dir):
     train = data[:train_size].copy()
     val = data[train_size:train_size+val_size].copy()
     test = data[train_size+val_size:].copy()
+    
+    # For wind bias computation
+    train_raw = train.copy()
+    val_raw = val.copy()
+    test_raw = test.copy()
+    
     logger.info(f"Data split - Train: {len(train)}, Validation: {len(val)}, Test: {len(test)}")
     logger.info("Applying feature-wise standardization...")
     scalers = []
@@ -95,6 +98,7 @@ def prepare_data_for_model(data_folder, output_dir):
         scalers.append(scaler)
         logger.info(f"Feature {CORE_FEATURES[i]}: mean={scaler.mean_[0]:.3f}, std={scaler.scale_[0]:.3f}")
     logger.info(f"Standardization complete with {len(scalers)} feature scalers")
+    
     seq_len_hours = 72
     horizon_hours = 72
     seq_len = seq_len_hours // 3
@@ -102,6 +106,7 @@ def prepare_data_for_model(data_folder, output_dir):
     logger.info(f"Sequence configuration:")
     logger.info(f"  Input: {seq_len_hours}h : {seq_len} timesteps")
     logger.info(f"  Forecast: {horizon_hours}h : {horizon} timesteps")
+    
     def make_sequences(data):
         n_samples = len(data) - seq_len - horizon + 1
         X = np.zeros((n_samples, seq_len, data.shape[1], data.shape[2]), dtype=np.float32)
@@ -110,19 +115,39 @@ def prepare_data_for_model(data_folder, output_dir):
             X[i] = data[i:i+seq_len]
             y[i] = data[i+seq_len:i+seq_len+horizon, :, 0:1]
         return X, y
+    
     logger.info("Creating temporal sequences")
     X_train, y_train = make_sequences(train)
     X_val, y_val = make_sequences(val)
     X_test, y_test = make_sequences(test)
-    logger.info(f"Sequence shapes:")
-    logger.info(f"  Train: X{X_train.shape}, y{y_train.shape}")
-    logger.info(f"  Validation: X{X_val.shape}, y{y_val.shape}")
-    logger.info(f"  Test: X{X_test.shape}, y{y_test.shape}")
+    
+    logger.info("Creating temporal sequences from raw data for wind bias")
+    X_train_raw, _ = make_sequences(train_raw)
+    X_val_raw, _ = make_sequences(val_raw)
+    X_test_raw, _ = make_sequences(test_raw)
+    
+    logger.info("Computing wind bias on raw data...")
+    from wind_bias import create_wind_bias_dataset
+    WIND_SPEED_IDX = 12
+    WIND_DIR_IDX = 13
+    wind_bias_train = create_wind_bias_dataset(X_train_raw, output_path=None, 
+                                               wind_speed_idx=WIND_SPEED_IDX, 
+                                               wind_direction_idx=WIND_DIR_IDX)
+    wind_bias_val = create_wind_bias_dataset(X_val_raw, output_path=None, 
+                                             wind_speed_idx=WIND_SPEED_IDX, 
+                                             wind_direction_idx=WIND_DIR_IDX)
+    wind_bias_test = create_wind_bias_dataset(X_test_raw, output_path=None, 
+                                              wind_speed_idx=WIND_SPEED_IDX, 
+                                              wind_direction_idx=WIND_DIR_IDX)
+    logger.info(f"Wind bias matrices: Train {wind_bias_train.shape}, Val {wind_bias_val.shape}, Test {wind_bias_test.shape}")
+    logger.info(f"Train sequences: X{X_train.shape}, y{y_train.shape}")
+    logger.info(f"Validation sequences: X{X_val.shape}, y{y_val.shape}")
+    logger.info(f"Test sequences: X{X_test.shape}, y{y_test.shape}")
     logger.info("Saving model-ready data...")
     os.makedirs(output_dir, exist_ok=True)
-    np.savez_compressed(f'{output_dir}/train.npz', x=X_train, y=y_train)
-    np.savez_compressed(f'{output_dir}/val.npz', x=X_val, y=y_val)
-    np.savez_compressed(f'{output_dir}/test.npz', x=X_test, y=y_test)
+    np.savez_compressed(f'{output_dir}/train.npz', x=X_train, y=y_train, wind_bias=wind_bias_train)
+    np.savez_compressed(f'{output_dir}/val.npz', x=X_val, y=y_val, wind_bias=wind_bias_val)
+    np.savez_compressed(f'{output_dir}/test.npz', x=X_test, y=y_test, wind_bias=wind_bias_test)
     with open(f'{output_dir}/scalers.pkl', 'wb') as f:
         pickle.dump(scalers, f)
     stations_df = pd.DataFrame(stations_info)

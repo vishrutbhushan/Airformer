@@ -2,6 +2,42 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'fast-kan'))
+from fastkan.fastkan import FastKANLayer
+
+class SimpleKAN(nn.Module):
+
+    def __init__(self, in_features, out_features):
+        super().__init__()
+        self.kan = FastKANLayer(
+            input_dim=in_features,
+            output_dim=out_features,
+            grid_min=-2.0,
+            grid_max=2.0,
+            num_grids=8,
+            use_base_update=True,
+            use_layernorm=in_features > 1
+        )
+    
+    def forward(self, x):
+        return self.kan(x)
+
+class KANFeedForward(nn.Module):
+
+    def __init__(self, dim, hidden_dim, dropout=0.):
+        super().__init__()
+        self.net = nn.Sequential(
+            SimpleKAN(dim, hidden_dim),
+            nn.Dropout(dropout),
+            SimpleKAN(hidden_dim, dim),
+            nn.Dropout(dropout)
+        )
+    
+    def forward(self, x):
+        return self.net(x)
 
 class LatentLayer(nn.Module):
     """
@@ -167,12 +203,13 @@ class SpatialAttention(nn.Module):
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(dropout)
 
-    def forward(self, x):
+    def forward(self, x, wind_bias=None):
         """
         Forward pass for spatial attention.
 
         Args:
             x (torch.Tensor): Input tensor. Shape: (batch_size * seq_len, num_nodes, channels)
+            wind_bias (torch.Tensor, optional): Wind bias tensor. Shape: (batch_size, seq_len, num_nodes, num_sectors)
 
         Returns:
             torch.Tensor: Output tensor with spatially attended features.
@@ -190,6 +227,11 @@ class SpatialAttention(nn.Module):
 
         attn = (q @ k.transpose(-2, -1)) * self.scale
         attn = attn.reshape(B, N, self.num_heads, 1, self.num_sector) + self.relative_bias
+        
+        if wind_bias is not None:
+            wind_bias = wind_bias.reshape(B, N, 1, 1, self.num_sector)
+            attn = attn + wind_bias
+        
         mask = self.mask.reshape(1, N, 1, 1, self.num_sector)
         attn = attn.masked_fill_(mask, float("-inf")).reshape(B * N, self.num_heads, 1, self.num_sector).softmax(dim=-1)
 
@@ -310,7 +352,7 @@ class DS_MSA(nn.Module):
     Deterministic Spatial Multi-Head Self-Attention block.
     This block consists of a spatial attention layer followed by a feedforward network.
     """
-    def __init__(self, dim, depth, heads, mlp_dim, assignment, mask, dropout=0.):
+    def __init__(self, dim, depth, heads, mlp_dim, assignment, mask, dropout=0., use_kan=False):
         """
         Initializes the DS_MSA block.
 
@@ -322,23 +364,26 @@ class DS_MSA(nn.Module):
             assignment (torch.Tensor): Assignment matrix for sectors.
             mask (torch.Tensor): Mask for attention.
             dropout (float): Dropout rate.
+            use_kan (bool): Use KAN for feedforward layers.
         """
         super().__init__()
         self.layers = nn.ModuleList([])
         for i in range(depth):
+            ff_layer = KANFeedForward(dim, mlp_dim, dropout=dropout) if use_kan else FeedForward(dim, mlp_dim, dropout=dropout)
             self.layers.append(nn.ModuleList([
                 SpatialAttention(dim, heads=heads, dropout=dropout,
                                assignment=assignment, mask=mask,
                                num_sectors=assignment.shape[-1]),
-                PreNorm(dim, FeedForward(dim, mlp_dim, dropout=dropout))
+                PreNorm(dim, ff_layer)
             ]))
 
-    def forward(self, x):
+    def forward(self, x, wind_bias=None):
         """
         Forward pass for the DS_MSA block.
 
         Args:
             x (torch.Tensor): Input tensor. Shape: (batch_size, channels, num_nodes, seq_len)
+            wind_bias (torch.Tensor, optional): Wind bias tensor. Shape: (batch_size, seq_len, num_nodes, num_regions)
 
         Returns:
             torch.Tensor: Output tensor with spatially attended features.
@@ -346,8 +391,14 @@ class DS_MSA(nn.Module):
         """
         b, c, n, t = x.shape
         x = x.permute(0, 3, 2, 1).reshape(b*t, n, c)
+        
+        if wind_bias is not None:
+            wind_bias_flat = wind_bias.reshape(b*t, n, -1)
+        else:
+            wind_bias_flat = None
+        
         for attn, ff in self.layers:
-            x = attn(x) + x
+            x = attn(x, wind_bias=wind_bias_flat) + x
             x = ff(x) + x
         x = x.reshape(b, t, n, c).permute(0, 3, 2, 1)
         return x
@@ -358,7 +409,7 @@ class CT_MSA(nn.Module):
     Causal Temporal Multi-Head Self-Attention block.
     This block consists of a temporal attention layer followed by a feedforward network.
     """
-    def __init__(self, dim, depth, heads, window_size, mlp_dim, num_time, dropout=0., device=None):
+    def __init__(self, dim, depth, heads, window_size, mlp_dim, num_time, dropout=0., device=None, use_kan=False):
         """
         Initializes the CT_MSA block.
 
@@ -371,15 +422,17 @@ class CT_MSA(nn.Module):
             num_time (int): Number of time steps for positional embedding.
             dropout (float): Dropout rate.
             device (torch.device): Device for mask tensor.
+            use_kan (bool): Use KAN for feedforward layers.
         """
         super().__init__()
         self.pos_embedding = nn.Parameter(torch.randn(1, num_time, dim))
         self.layers = nn.ModuleList([])
         for i in range(depth):
+            ff_layer = KANFeedForward(dim, mlp_dim, dropout=dropout) if use_kan else FeedForward(dim, mlp_dim, dropout=dropout)
             self.layers.append(nn.ModuleList([
                 TemporalAttention(dim=dim, heads=heads, window_size=window_size,
                                 dropout=dropout, device=device),
-                PreNorm(dim, FeedForward(dim, mlp_dim, dropout=dropout))
+                PreNorm(dim, ff_layer)
             ]))
 
     def forward(self, x):
@@ -421,7 +474,9 @@ class AirFormer(nn.Module):
                  # Local windows for CT-MSA
                  local_windows=None,
                  # Other
-                 device=None):
+                 device=None,
+                 use_kan=False,
+                 use_wind_bias=False):
         """
         Initializes the AirFormer model.
 
@@ -443,6 +498,8 @@ class AirFormer(nn.Module):
             dartboard (int): Type of dartboard partition to use.
             local_windows (list, optional): List of local window sizes for CT-MSA in each block.
             device (torch.device): The device to run the model on.
+            use_kan (bool): Use KAN for feedforward layers.
+            use_wind_bias (bool): Use precomputed wind bias in DS-MSA.
         """
         super().__init__()
         
@@ -454,6 +511,7 @@ class AirFormer(nn.Module):
         self.blocks = blocks
         self.spatial_flag = spatial_flag
         self.stochastic_flag = stochastic_flag
+        self.use_wind_bias = use_wind_bias
         self.device = device
         self.alpha = 10  # Coefficient for the KL divergence loss.
         
@@ -484,14 +542,14 @@ class AirFormer(nn.Module):
             self.t_modules.append(CT_MSA(hidden_channels, depth=1, heads=num_heads,
                                         window_size=window_size, 
                                         mlp_dim=hidden_channels*mlp_expansion,
-                                        num_time=seq_len, dropout=dropout, device=device))
+                                        num_time=seq_len, dropout=dropout, device=device, use_kan=use_kan))
             
             # Spatial attention module
             if spatial_flag:
                 self.s_modules.append(DS_MSA(hidden_channels, depth=1, heads=num_heads,
                                             mlp_dim=hidden_channels*mlp_expansion,
                                             assignment=self.assignment, mask=self.mask,
-                                            dropout=dropout))
+                                            dropout=dropout, use_kan=use_kan))
             
             self.bn.append(nn.BatchNorm2d(hidden_channels))
         
@@ -510,13 +568,14 @@ class AirFormer(nn.Module):
         self.end_conv_1 = nn.Conv2d(in_channels, end_channels, kernel_size=(1, 1))
         self.end_conv_2 = nn.Conv2d(end_channels, horizon*output_dim, kernel_size=(1, 1))
 
-    def forward(self, x, supports=None):
+    def forward(self, x, supports=None, wind_bias=None):
         """
         Forward pass for the AirFormer model.
 
         Args:
             x (torch.Tensor): Input tensor. Shape: (batch_size, seq_len, num_nodes, input_dim)
             supports: Not used in this model, but kept for compatibility with other frameworks.
+            wind_bias (torch.Tensor, optional): Wind bias tensor. Shape: (batch_size, seq_len, num_nodes, num_regions)
 
         Returns:
             If stochastic_flag is True:
@@ -538,7 +597,7 @@ class AirFormer(nn.Module):
         d = []
         for i in range(self.blocks):
             if self.spatial_flag:
-                x = self.s_modules[i](x)
+                x = self.s_modules[i](x, wind_bias=wind_bias if self.use_wind_bias else None)
             x = self.t_modules[i](x)
             x = self.bn[i](x)
             d.append(x)

@@ -6,6 +6,16 @@ import logging
 logger = logging.getLogger(__name__)
 
 class Trainer:
+    """
+    Trainer for AirFormer model.
+    
+    Handles training loop, validation, early stopping, and model checkpointing.
+    
+    Input data format:
+    - x: (batch, seq_len, num_nodes, 21 features)
+      - Features: 15 base measurements + 6 cyclic temporal features
+    - y: (batch, horizon, num_nodes, 1)
+    """
     def __init__(self, model, data, max_epochs, learning_rate, patience, log_dir, device, 
                  grad_accum_steps=2, weight_decay=1e-5, grad_clip=5.0, 
                  scheduler_patience=10, scheduler_factor=0.5, scheduler_threshold=1e-4,
@@ -57,18 +67,24 @@ class Trainer:
         self.model.train()
         total_loss = 0
         
-        for batch_idx, (x, y) in enumerate(self.train_loader):
-            x, y = x.to(self.device), y.to(self.device)
+        for batch_idx, batch_data in enumerate(self.train_loader):
+            if len(batch_data) == 3:
+                x, y, wind_bias = batch_data
+                x, y, wind_bias = x.to(self.device), y.to(self.device), wind_bias.to(self.device)
+            else:
+                x, y = batch_data
+                x, y = x.to(self.device), y.to(self.device)
+                wind_bias = None
             
             if self.use_amp:
                 with torch.amp.autocast('cuda'):
                     if self.model.stochastic_flag:
-                        y_pred, x_rec, kl_loss = self.model(x)
+                        y_pred, x_rec, kl_loss = self.model(x, wind_bias=wind_bias)
                         pred_loss = nn.functional.l1_loss(y_pred, y)
                         rec_loss = nn.functional.l1_loss(x_rec, x)
                         loss = pred_loss + rec_loss + kl_loss
                     else:
-                        y_pred = self.model(x)
+                        y_pred = self.model(x, wind_bias=wind_bias)
                         loss = nn.functional.l1_loss(y_pred, y)
                     
                     loss = loss / self.accumulation_steps
@@ -83,12 +99,12 @@ class Trainer:
                     self.optimizer.zero_grad()
             else:
                 if self.model.stochastic_flag:
-                    y_pred, x_rec, kl_loss = self.model(x)
+                    y_pred, x_rec, kl_loss = self.model(x, wind_bias=wind_bias)
                     pred_loss = nn.functional.l1_loss(y_pred, y)
                     rec_loss = nn.functional.l1_loss(x_rec, x)  # FIX: should be x not y
                     loss = pred_loss + rec_loss + kl_loss
                 else:
-                    y_pred = self.model(x)
+                    y_pred = self.model(x, wind_bias=wind_bias)
                     loss = nn.functional.l1_loss(y_pred, y)
                 
                 loss = loss / self.accumulation_steps
@@ -108,21 +124,27 @@ class Trainer:
         total_loss = 0
         
         with torch.no_grad():
-            for x, y in self.val_loader:
-                x, y = x.to(self.device), y.to(self.device)
+            for batch_data in self.val_loader:
+                if len(batch_data) == 3:
+                    x, y, wind_bias = batch_data
+                    x, y, wind_bias = x.to(self.device), y.to(self.device), wind_bias.to(self.device)
+                else:
+                    x, y = batch_data
+                    x, y = x.to(self.device), y.to(self.device)
+                    wind_bias = None
                 
                 if self.use_amp:
                     with torch.amp.autocast('cuda'):
                         if self.model.stochastic_flag:
-                            y_pred, _, _ = self.model(x)
+                            y_pred, _, _ = self.model(x, wind_bias=wind_bias)
                         else:
-                            y_pred = self.model(x)
+                            y_pred = self.model(x, wind_bias=wind_bias)
                         loss = nn.functional.l1_loss(y_pred, y)
                 else:
                     if self.model.stochastic_flag:
-                        y_pred, _, _ = self.model(x)
+                        y_pred, _, _ = self.model(x, wind_bias=wind_bias)
                     else:
-                        y_pred = self.model(x)
+                        y_pred = self.model(x, wind_bias=wind_bias)
                     loss = nn.functional.l1_loss(y_pred, y)
                 
                 total_loss += loss.item()
@@ -175,20 +197,26 @@ class Trainer:
         targets = []
         
         with torch.no_grad():
-            for x, y in self.test_loader:
-                x, y = x.to(self.device), y.to(self.device)
+            for batch_data in self.test_loader:
+                if len(batch_data) == 3:
+                    x, y, wind_bias = batch_data
+                    x, y, wind_bias = x.to(self.device), y.to(self.device), wind_bias.to(self.device)
+                else:
+                    x, y = batch_data
+                    x, y = x.to(self.device), y.to(self.device)
+                    wind_bias = None
                 
                 if self.use_amp:
                     with torch.amp.autocast('cuda'):
                         if self.model.stochastic_flag:
-                            y_pred, _, _ = self.model(x)
+                            y_pred, _, _ = self.model(x, wind_bias=wind_bias)
                         else:
-                            y_pred = self.model(x)
+                            y_pred = self.model(x, wind_bias=wind_bias)
                 else:
                     if self.model.stochastic_flag:
-                        y_pred, _, _ = self.model(x)
+                        y_pred, _, _ = self.model(x, wind_bias=wind_bias)
                     else:
-                        y_pred = self.model(x)
+                        y_pred = self.model(x, wind_bias=wind_bias)
                 
                 predictions.append(y_pred.cpu().numpy())
                 targets.append(y.cpu().numpy())
