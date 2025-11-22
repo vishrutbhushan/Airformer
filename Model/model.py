@@ -17,9 +17,9 @@ class SimpleKAN(nn.Module):
             output_dim=out_features,
             grid_min=-2.0,
             grid_max=2.0,
-            num_grids=8,
-            use_base_update=True,
-            use_layernorm=in_features > 1
+            num_grids=4,
+            use_base_update=False,
+            use_layernorm=False
         )
     
     def forward(self, x):
